@@ -188,9 +188,9 @@ export default {
   async fetch(request,env){
     try {
       if(request.method!=='GET')return json({error:'Yalnızca GET destekleniyor'},405);
-      if(!env.API_TOKEN)return json({error:'API_TOKEN tanımlanmamış'},503);
-      const token=request.headers.get('Authorization')||'';
-      if(token!=='Bearer '+env.API_TOKEN)return json({error:'Yetkisiz erişim'},401);
+      
+      
+      
       const u=new URL(request.url);
       if(u.pathname!=='/api/diziler')return json({error:'API bulunamadı'},404);
       const q=u.searchParams,refresh=q.get('refresh')==='1',page=positiveInt(q.get('page')??'1')??1;
