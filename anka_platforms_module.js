@@ -66,3 +66,125 @@ export async function handleAnkaPlatforms(request, env) {
         platforms
     });
 }
+
+
+
+export async function handleAnkaPlatformAccess(request, env) {
+    if (request.method !== "POST") {
+        return new Response(JSON.stringify({
+            success: false,
+            error: "POST gerekli."
+        }), {
+            status: 405,
+            headers: {
+                "Content-Type": "application/json; charset=utf-8",
+                "Cache-Control": "no-store"
+            }
+        });
+    }
+
+    if (!env.DB) {
+        return new Response(JSON.stringify({
+            success: false,
+            error: "D1 bağlantısı bulunamadı."
+        }), {
+            status: 503,
+            headers: {
+                "Content-Type": "application/json; charset=utf-8"
+            }
+        });
+    }
+
+    const session = await getAnkaAppSession(request, env);
+
+    if (!session) {
+        return new Response(JSON.stringify({
+            success: false,
+            error: "Oturum geçersiz veya süresi dolmuş."
+        }), {
+            status: 401,
+            headers: {
+                "Content-Type": "application/json; charset=utf-8"
+            }
+        });
+    }
+
+    let body;
+
+    try {
+        body = await request.json();
+    } catch (_) {
+        return new Response(JSON.stringify({
+            success: false,
+            error: "Geçersiz JSON."
+        }), {
+            status: 400,
+            headers: {
+                "Content-Type": "application/json; charset=utf-8"
+            }
+        });
+    }
+
+    const platformId = String(
+        body.platform_id || ""
+    ).trim();
+
+    if (!platformId) {
+        return new Response(JSON.stringify({
+            success: false,
+            error: "Platform ID gerekli."
+        }), {
+            status: 400,
+            headers: {
+                "Content-Type": "application/json; charset=utf-8"
+            }
+        });
+    }
+
+    const row = await env.DB.prepare(`
+        SELECT payload
+        FROM anka_records
+        WHERE type = 'platforms'
+          AND id = ?
+          AND active = 1
+        LIMIT 1
+    `).bind(platformId).first();
+
+    if (!row) {
+        return new Response(JSON.stringify({
+            success: false,
+            error: "Platform bulunamadı veya pasif."
+        }), {
+            status: 404,
+            headers: {
+                "Content-Type": "application/json; charset=utf-8"
+            }
+        });
+    }
+
+    const platform = JSON.parse(row.payload);
+
+    if (!platform.active) {
+        return new Response(JSON.stringify({
+            success: false,
+            error: "Platform pasif."
+        }), {
+            status: 403,
+            headers: {
+                "Content-Type": "application/json; charset=utf-8"
+            }
+        });
+    }
+
+    return new Response(JSON.stringify({
+        success: true,
+        ok: true,
+        token: platform.token || "",
+        js_url: platform.js_url || ""
+    }), {
+        headers: {
+            "Content-Type": "application/json; charset=utf-8",
+            "Cache-Control": "no-store"
+        }
+    });
+}
