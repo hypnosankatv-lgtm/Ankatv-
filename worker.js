@@ -3,6 +3,7 @@ import { handleAnkaManage } from "./anka_admin_module.js";
 import { handleAnkaUsers } from "./anka_users_module.js";
 import { handleAnkaRegisterPage } from "./anka_register_page.js";
 import { handleAnkaAuth } from "./anka_auth_module.js";
+import { handleAnkaPlatforms } from "./anka_platforms_module.js";
 
 const APP_NAME = "ANKA TV+";
 const VERSION = "1.2.2";
@@ -1015,7 +1016,9 @@ if (
         getAdmin
     );
 }
-            
+            if (path === "/api/app/platforms") {
+    return await handleAnkaPlatforms(request, env);
+            }
 
             if (path === "/admin/setup") {
                 return await handleAdminSetup(
