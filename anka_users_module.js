@@ -71,9 +71,11 @@ async function usersDeviceHash(request) {
         request.headers.get("X-Anka-Device-Id") || ""
     ).trim().toLowerCase();
 
+    // Standart Android UUID: 8-4-4-4-12
     const uuidPattern =
-        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
+    // Eski cihaz kimlikleri için destek
     const legacyPattern = /^[0-9a-f]{16}$/;
 
     if (
@@ -83,6 +85,7 @@ async function usersDeviceHash(request) {
         return null;
     }
 
+    // Giriş modülüyle aynı SHA-256 biçimi
     return usersSha256(
         "anka-device-v1:" + deviceId
     );
