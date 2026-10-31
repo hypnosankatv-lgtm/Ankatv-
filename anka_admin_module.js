@@ -1,8 +1,8 @@
 const TYPES = ['platforms', 'media', 'announcements', 'film_sources', 'dizi_sources'];
 const NAMES = {
     platforms: 'Platform Yönetimi',
-    media: 'Film / Dizi API',
-    announcements: 'Duyurular',
+    media: 'Türk Dizileri',
+    announcements: 'Ana Ekran Duyurusu',
     film_sources: 'Film Siteleri',
     dizi_sources: 'Dizi Siteleri'
 };
@@ -211,10 +211,28 @@ label{display:block;margin:15px 0 7px;font-size:13px;color:#e5e5e8}
 }
 @media(max-width:370px){.brand h1{font-size:15px}.topbar{gap:5px}.logout button{padding:8px}}
 `;
+    const menu = `<div class="side-brand"><div class="side-logo">A</div><div><strong>ANKA TV+</strong><small>YÖNETİM MERKEZİ</small></div></div>
+<div class="menu-group">GENEL</div>
+<button type="button" data-page="overview"><span class="nav-ico">▦</span>Genel Bakış</button>
+<button type="button" data-page="users"><span class="nav-ico">♙</span>Kullanıcı Yönetimi</button>
+<button type="button" data-page="passwords"><span class="nav-ico">♧</span>Şifre Sıfırlama</button>
+<div class="menu-group">YAYIN KAYNAKLARI</div>
+<button type="button" data-type="platforms"><span class="nav-ico">▣</span>Platform Yönetimi</button>
+<button type="button" data-type="film_sources"><span class="nav-ico">▤</span>Film Siteleri</button>
+<button type="button" data-type="dizi_sources"><span class="nav-ico">▦</span>Dizi Siteleri</button>
+<button type="button" data-type="media"><span class="nav-ico">▧</span>Türk Dizileri</button>
+<div class="menu-group">UYGULAMA</div>
+<button type="button" data-type="announcements"><span class="nav-ico">▱</span>Ana Ekran Duyurusu</button>
+<button type="button" data-page="notifications"><span class="nav-ico">♧</span>Anlık Bildirim</button>`;
+    const extraCss = `
+.sidebar{padding:22px 15px}.side-brand{display:flex;align-items:center;gap:15px;padding:4px 10px 30px}.side-logo{width:54px;height:54px;flex-shrink:0;border-radius:17px;background:#2db88a;color:#10251d;font-size:36px;font-weight:800;display:grid;place-items:center}.side-brand strong{display:block;font-size:24px;color:#fff}.side-brand small{display:block;margin-top:5px;color:#aaaab1;font-size:11px;letter-spacing:2px}.menu-group{font-size:12px;letter-spacing:2px;color:#aaaab1;padding:23px 13px 14px}.sidebar button{min-height:54px;gap:14px;padding:12px 14px;font-size:15px;border-radius:11px}.nav-ico{display:inline-block;min-width:20px;color:#aaaab1;font-size:19px;font-weight:400}.sidebar button.selected{background:#294039;border:0}.sidebar button.selected .nav-ico{color:#fff}.sidebar .side-title{display:none}
+@media(max-width:720px){.sidebar{top:62px;width:min(325px,84vw);padding:22px 14px}.side-brand{padding-bottom:23px}.sidebar button{min-height:53px}}
+`;
     const js = `
 const FIELDS=${JSON.stringify(FIELDS)};
 const NAMES=${JSON.stringify(NAMES)};
 let currentType='platforms';
+let currentPage=null;
 let items=[];
 let editId=null;
 const $=id=>document.getElementById(id);
@@ -234,12 +252,13 @@ async function api(action,type,body){
  return result;
 }
 async function load(){
+ if(currentPage)return;
  notice('Kayıtlar yükleniyor...');
  try{const result=await api('list',currentType);items=Array.isArray(result.items)?result.items:[];notice('');render()}
  catch(error){items=[];render();notice(error.message,true)}
 }
 function render(){
- document.querySelectorAll('[data-type]').forEach(button=>button.classList.toggle('selected',button.dataset.type===currentType));
+ document.querySelectorAll('.sidebar button').forEach(button=>button.classList.toggle('selected',currentPage?button.dataset.page===currentPage:button.dataset.type===currentType));
  $('heading').textContent=NAMES[currentType];
  const query=$('search').value.trim().toLocaleLowerCase('tr');
  const filtered=items.filter(item=>JSON.stringify(item).toLocaleLowerCase('tr').includes(query));
@@ -269,7 +288,15 @@ $('new').onclick=()=>openForm();
 $('cancel').onclick=closeForm;
 $('search').oninput=render;
 document.querySelectorAll('[data-type]').forEach(button=>button.onclick=()=>{
- currentType=button.dataset.type;closeMenu();closeForm();$('search').value='';load();
+ currentPage=null;currentType=button.dataset.type;closeMenu();closeForm();$('search').value='';$('new').hidden=false;$('search').hidden=false;load();
+});
+const PLACEHOLDER={overview:['Genel Bakış','Sistem özeti ve istatistikler sonraki aşamada D1 verilerine bağlanacak.'],users:['Kullanıcı Yönetimi','Kullanıcı listesi, hesap onayı ve yetkiler henüz bu modüle taşınmadı.'],passwords:['Şifre Sıfırlama','Şifre sıfırlama talepleri henüz bu modüle taşınmadı.'],notifications:['Anlık Bildirim','Bildirim gönderme servisi henüz yapılandırılmadı.']};
+document.querySelectorAll('[data-page]').forEach(button=>button.onclick=()=>{
+ currentPage=button.dataset.page;closeMenu();closeForm();$('search').value='';
+ $('new').hidden=true;$('search').hidden=true;$('count').textContent='';notice('');
+ $('heading').textContent=PLACEHOLDER[currentPage][0];
+ $('rows').innerHTML='<div class="empty">'+esc(PLACEHOLDER[currentPage][1])+'</div>';
+ document.querySelectorAll('.sidebar button').forEach(b=>b.classList.toggle('selected',b===button));
 });
 $('editForm').onsubmit=async event=>{
  event.preventDefault();
@@ -298,11 +325,11 @@ $('rows').onclick=async event=>{
 load();
 `;
     return `<!doctype html>
-<html lang="tr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ANKA TV+ Yönetim Paneli</title><style>${css}</style></head>
+<html lang="tr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ANKA TV+ Yönetim Paneli</title><style>${css}${extraCss}</style></head>
 <body>
 <header class="topbar"><div class="brand"><button id="menuBtn" class="menu-btn" type="button" aria-label="Menüyü aç">☰</button><h1>ANKA TV+ Yönetim Paneli</h1></div><div class="top-actions"><a href="/admin">Ana Sayfa</a><form class="logout" method="POST" action="/admin/logout"><button type="submit">Çıkış</button></form></div></header>
 <div class="backdrop" id="backdrop"></div>
-<div class="layout"><aside class="sidebar" id="sidebar"><div class="side-title">Yönetim Menüsü</div>${TYPES.map(type => `<button type="button" data-type="${type}">${NAMES[type]}</button>`).join('')}</aside>
+<div class="layout"><aside class="sidebar" id="sidebar">${menu}</aside>
 <main class="content"><div class="heading"><h2 id="heading">Platform Yönetimi</h2><button id="new" type="button">+ Yeni Kayıt</button></div><p class="hint" id="count">Kayıtlar yükleniyor...</p><input class="search" id="search" type="search" placeholder="Kayıtlarda ara..."><p class="notice" id="notice" role="status"></p>
 <section class="form-wrap" id="formWrap"><h3 id="formTitle">Yeni Kayıt</h3><form id="editForm"><div class="form-grid" id="fields"></div><label class="checkline"><input id="active" type="checkbox" checked> Aktif</label><div class="form-actions"><button id="save" type="submit">Kaydet</button><button class="secondary" id="cancel" type="button">İptal</button></div></form></section>
 <section class="cards" id="rows"></section></main></div><script>${js}</script></body></html>`;
