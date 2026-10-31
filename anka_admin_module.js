@@ -15,14 +15,9 @@ const FIELDS = {
         ['token', 'Platform Token (boş bırakılırsa değişmez)']
     ],
     media: [
-        ['title', 'Kaynak Başlığı', true],
-        ['kind', 'Tür', true],
-        ['site_url', 'Film Sitesi URL'],
-        ['api_js_url', 'Film API.js URL'],
-        ['izle_js_url', 'Film İzle.js URL'],
-        ['film_api', 'TV Dizileri API URL'],
-        ['search_api', 'TV Dizileri Arama API URL'],
-        ['js_url', 'TV Dizileri İzleme JS URL']
+        ['title', 'Dizi / Kanal Başlığı', true],
+        ['film_api', 'Dizi API URL', true],
+        ['js_url', 'İzleme JS URL', true]
     ],
     announcements: [
         ['title', 'Duyuru Başlığı', true],
@@ -99,14 +94,11 @@ function clean(type, input, old) {
         }
     }
     if (type === 'media') {
-        if (!['film', 'tv_dizi'].includes(item.kind)) throw new Error('Tür film veya tv_dizi olmalıdır.');
-        const required = item.kind === 'film' ? ['site_url', 'api_js_url'] : ['film_api', 'search_api', 'js_url'];
-        for (const key of required) if (!item[key]) throw new Error(key + ' alanı zorunludur.');
-        if (item.kind === 'film') {
-            item.base_url = item.site_url;
-            item.baseUrl = item.site_url;
-            item.watch_js_url = item.izle_js_url;
-            item.js_url = item.api_js_url;
+        // Eski medya kayıtlarındaki diğer alanları silmeden koru.
+        const previous = old || {};
+        item.kind = 'tv_dizi';
+        for (const key of ['site_url', 'api_js_url', 'izle_js_url', 'search_api', 'base_url', 'baseUrl', 'watch_js_url']) {
+            if (previous[key] !== undefined) item[key] = previous[key];
         }
     }
     if (type === 'platforms') {
@@ -211,7 +203,7 @@ label{display:block;margin:15px 0 7px;font-size:13px;color:#e5e5e8}
 }
 @media(max-width:370px){.brand h1{font-size:15px}.topbar{gap:5px}.logout button{padding:8px}}
 `;
-    const menu = `<div class="side-brand"><div class="side-logo">A</div><div><strong>ANKA TV+</strong><small>YÖNETİM MERKEZİ</small></div></div>
+    const menu = `<button type="button" class="side-close" id="sideClose" aria-label="Menüyü kapat">×</button><div class="side-brand"><div class="side-logo">A</div><div><strong>ANKA TV+</strong><small>YÖNETİM MERKEZİ</small></div></div>
 <div class="menu-group">GENEL</div>
 <button type="button" data-page="overview"><span class="nav-ico">▦</span>Genel Bakış</button>
 <button type="button" data-page="users"><span class="nav-ico">♙</span>Kullanıcı Yönetimi</button>
@@ -227,6 +219,29 @@ label{display:block;margin:15px 0 7px;font-size:13px;color:#e5e5e8}
     const extraCss = `
 .sidebar{padding:22px 15px}.side-brand{display:flex;align-items:center;gap:15px;padding:4px 10px 30px}.side-logo{width:54px;height:54px;flex-shrink:0;border-radius:17px;background:#2db88a;color:#10251d;font-size:36px;font-weight:800;display:grid;place-items:center}.side-brand strong{display:block;font-size:24px;color:#fff}.side-brand small{display:block;margin-top:5px;color:#aaaab1;font-size:11px;letter-spacing:2px}.menu-group{font-size:12px;letter-spacing:2px;color:#aaaab1;padding:23px 13px 14px}.sidebar button{min-height:54px;gap:14px;padding:12px 14px;font-size:15px;border-radius:11px}.nav-ico{display:inline-block;min-width:20px;color:#aaaab1;font-size:19px;font-weight:400}.sidebar button.selected{background:#294039;border:0}.sidebar button.selected .nav-ico{color:#fff}.sidebar .side-title{display:none}
 @media(max-width:720px){.sidebar{top:62px;width:min(325px,84vw);padding:22px 14px}.side-brand{padding-bottom:23px}.sidebar button{min-height:53px}}
+@media(max-width:800px){
+ .sidebar{top:0!important;bottom:0!important;width:min(285px,74vw)!important;z-index:110!important;padding-top:22px!important;box-shadow:12px 0 40px #0007}
+ .backdrop.show{inset:0!important;z-index:100!important}
+ .side-brand{padding-right:34px!important}
+ .sidebar .side-brand strong{font-size:21px}
+ .sidebar button{min-height:48px;margin-bottom:4px;padding:10px 12px;font-size:14px}
+ .menu-group{padding:19px 12px 10px}
+}
+@media(max-width:390px){.sidebar{width:min(285px,78vw)!important}}
+.side-close{position:absolute;right:12px;top:17px;width:34px!important;min-height:34px!important;padding:3px!important;display:none!important;align-items:center;justify-content:center;background:#33323a!important;color:white!important;font-size:20px!important}
+@media(max-width:800px){.side-close{display:flex!important}}
+.form-backdrop{display:none;position:fixed;inset:0;background:#000b;z-index:150}
+.form-backdrop.show{display:block}
+.form-wrap.modal-open{display:block!important;position:fixed;z-index:160;top:50%;left:50%;transform:translate(-50%,-50%);width:min(620px,calc(100vw - 28px));max-height:calc(100dvh - 32px);overflow-y:auto;margin:0;padding:24px 20px;background:#242329;border:1px solid #45454b;border-radius:20px;box-shadow:0 20px 70px #000a}
+.form-wrap.modal-open .form-grid{grid-template-columns:1fr}
+.form-wrap.modal-open h3{font-size:23px;margin:0 45px 18px 0}
+.form-wrap.modal-open label{font-size:15px;font-weight:600}
+.form-wrap.modal-open input{font-size:16px;min-height:48px}
+.form-wrap.modal-open .form-actions{justify-content:flex-end}
+.form-wrap.modal-open .checkline{font-size:14px}
+.modal-close{display:none;position:absolute;top:16px;right:16px;background:#33323a;color:#fff;font-size:22px;padding:3px;width:40px;min-height:40px}
+.form-wrap.modal-open .modal-close{display:block}
+
 `;
     const js = `
 const FIELDS=${JSON.stringify(FIELDS)};
@@ -241,6 +256,9 @@ function notice(message,isError=false){$('notice').textContent=message;$('notice
 function closeMenu(){$('sidebar').classList.remove('open');$('backdrop').classList.remove('show')}
 $('menuBtn').onclick=()=>{$('sidebar').classList.toggle('open');$('backdrop').classList.toggle('show')};
 $('backdrop').onclick=closeMenu;
+$('sideClose').onclick=closeMenu;
+$('formBackdrop').onclick=closeForm;
+$('modalClose').onclick=closeForm;
 async function api(action,type,body){
  const params=new URLSearchParams({action,type});
  const options={method:body===undefined?'GET':'POST',credentials:'same-origin',cache:'no-store'};
@@ -270,7 +288,7 @@ function render(){
 }
 function openForm(item={}){
  editId=item.id||null;
- $('formTitle').textContent=editId?'Kaydı Düzenle':'Yeni Kayıt';
+ $('formTitle').textContent=currentType==='media'?(editId?'Düzenle: API Kaynağı':'Yeni API Kaynağı'):(editId?'Kaydı Düzenle':'Yeni Kayıt');
  $('fields').innerHTML=FIELDS[currentType].map(([key,label,required])=>{
   const value=key==='token'?'':String(item[key]??'');
   const full=key==='message'?' full':'';
@@ -280,11 +298,13 @@ function openForm(item={}){
   return '<div class="form-field"><label for="f_'+key+'">'+esc(label)+'</label><input id="f_'+key+'" name="'+key+'" type="'+type+'" '+(required?'required':'')+' value="'+esc(value)+'" '+(key==='token'?'autocomplete="new-password"':'')+'></div>';
  }).join('');
  $('active').checked=item.active!==false;
- $('formWrap').style.display='block';
- $('formWrap').scrollIntoView({behavior:'smooth',block:'start'});
+ $('activeLabel').textContent=currentType==='media'?'TV Dizileri sayfasında göster (Aktif)':'Aktif';
+ $('formWrap').classList.add('modal-open');
+ $('formBackdrop').classList.add('show');
 }
-function closeForm(){$('formWrap').style.display='none';editId=null}
+function closeForm(){$('formWrap').classList.remove('modal-open');$('formBackdrop').classList.remove('show');editId=null}
 $('new').onclick=()=>openForm();
+document.addEventListener('keydown',event=>{if(event.key==='Escape'){closeMenu();closeForm()}});
 $('cancel').onclick=closeForm;
 $('search').oninput=render;
 document.querySelectorAll('[data-type]').forEach(button=>button.onclick=()=>{
@@ -331,7 +351,7 @@ load();
 <div class="backdrop" id="backdrop"></div>
 <div class="layout"><aside class="sidebar" id="sidebar">${menu}</aside>
 <main class="content"><div class="heading"><h2 id="heading">Platform Yönetimi</h2><button id="new" type="button">+ Yeni Kayıt</button></div><p class="hint" id="count">Kayıtlar yükleniyor...</p><input class="search" id="search" type="search" placeholder="Kayıtlarda ara..."><p class="notice" id="notice" role="status"></p>
-<section class="form-wrap" id="formWrap"><h3 id="formTitle">Yeni Kayıt</h3><form id="editForm"><div class="form-grid" id="fields"></div><label class="checkline"><input id="active" type="checkbox" checked> Aktif</label><div class="form-actions"><button id="save" type="submit">Kaydet</button><button class="secondary" id="cancel" type="button">İptal</button></div></form></section>
+<div class="form-backdrop" id="formBackdrop"></div><section class="form-wrap" id="formWrap"><button class="modal-close" id="modalClose" type="button" aria-label="Kapat">×</button><h3 id="formTitle">Yeni Kayıt</h3><form id="editForm"><div class="form-grid" id="fields"></div><label class="checkline"><input id="active" type="checkbox" checked><span id="activeLabel">Aktif</span></label><div class="form-actions"><button id="save" type="submit">Kaydet</button><button class="secondary" id="cancel" type="button">İptal</button></div></form></section>
 <section class="cards" id="rows"></section></main></div><script>${js}</script></body></html>`;
 }
 export async function handleAnkaManage(request, env, getAdmin) {
