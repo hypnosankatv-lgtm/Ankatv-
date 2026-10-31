@@ -1,7 +1,8 @@
 const APP_NAME = "ANKA TV+";
-const VERSION = "1.2.1";
+const VERSION = "1.2.2";
 const SESSION_SECONDS = 60 * 60 * 12;
 const MAX_FORM_BYTES = 8192;
+const PBKDF2_ITERATIONS = 100000;
 
 function jsonResponse(data, status = 200, extraHeaders = {}) {
     return new Response(JSON.stringify(data), {
@@ -72,13 +73,18 @@ function randomToken() {
 }
 
 async function sha256(value) {
-    const bytes = new TextEncoder().encode(String(value));
+    const bytes = new TextEncoder().encode(
+        String(value)
+    );
+
     const hash = await crypto.subtle.digest(
         "SHA-256",
         bytes
     );
 
-    return bytesToHex(new Uint8Array(hash));
+    return bytesToHex(
+        new Uint8Array(hash)
+    );
 }
 
 async function passwordHash(password, salt) {
@@ -94,14 +100,16 @@ async function passwordHash(password, salt) {
         {
             name: "PBKDF2",
             salt: new TextEncoder().encode(salt),
-            iterations: 310000,
+            iterations: PBKDF2_ITERATIONS,
             hash: "SHA-256"
         },
         key,
         256
     );
 
-    return bytesToHex(new Uint8Array(bits));
+    return bytesToHex(
+        new Uint8Array(bits)
+    );
 }
 
 function constantTimeEqual(a, b) {
@@ -109,7 +117,10 @@ function constantTimeEqual(a, b) {
     const right = String(b);
 
     let difference = left.length ^ right.length;
-    const length = Math.max(left.length, right.length);
+    const length = Math.max(
+        left.length,
+        right.length
+    );
 
     for (let i = 0; i < length; i++) {
         difference |=
@@ -121,7 +132,8 @@ function constantTimeEqual(a, b) {
 }
 
 function getCookie(request, name) {
-    const cookie = request.headers.get("Cookie") || "";
+    const cookie =
+        request.headers.get("Cookie") || "";
 
     for (const item of cookie.split(";")) {
         const part = item.trim();
@@ -153,30 +165,18 @@ function expiredSessionCookie() {
     );
 }
 
- 
-    
-
- 
 function validFormOrigin(request) {
-    const url = new URL(request.url);
-    const expectedOrigin = url.origin;
+    const expectedOrigin =
+        new URL(request.url).origin;
 
-    const origin = request.headers.get("Origin");
-    const referer = request.headers.get("Referer");
-    const fetchSite = request.headers.get("Sec-Fetch-Site");
+    const origin =
+        request.headers.get("Origin");
 
-    console.log("FORM_ORIGIN_DEBUG", JSON.stringify({
-        expectedOrigin,
-        origin,
-        refererOrigin: (() => {
-            try {
-                return referer ? new URL(referer).origin : null;
-            } catch (_) {
-                return "invalid";
-            }
-        })(),
-        fetchSite
-    }));
+    const referer =
+        request.headers.get("Referer");
+
+    const fetchSite =
+        request.headers.get("Sec-Fetch-Site");
 
     if (origin !== null) {
         return origin === expectedOrigin;
@@ -184,7 +184,8 @@ function validFormOrigin(request) {
 
     if (referer !== null) {
         try {
-            return new URL(referer).origin === expectedOrigin;
+            return new URL(referer).origin ===
+                expectedOrigin;
         } catch (_) {
             return false;
         }
@@ -192,9 +193,6 @@ function validFormOrigin(request) {
 
     return fetchSite === "same-origin";
 }
-
-
-
 
 async function readForm(request) {
     const contentType =
@@ -275,7 +273,9 @@ async function checkAdminTables(env) {
         ).all();
 
         const existing = new Set(
-            (result.results || []).map(row => row.name)
+            (result.results || []).map(
+                row => row.name
+            )
         );
 
         const missing = columns.filter(
@@ -294,14 +294,19 @@ async function checkAdminTables(env) {
 async function getAdmin(request, env) {
     databaseRequired(env);
 
-    const token = getCookie(request, "anka_admin");
+    const token = getCookie(
+        request,
+        "anka_admin"
+    );
 
     if (!/^[a-f0-9]{64}$/.test(token)) {
         return null;
     }
 
     const tokenHash = await sha256(token);
-    const now = Math.floor(Date.now() / 1000);
+    const now = Math.floor(
+        Date.now() / 1000
+    );
 
     return await env.DB.prepare(`
         SELECT u.id, u.username
@@ -447,7 +452,7 @@ ${error ? `<p class="error">${escapeHtml(error)}</p>` : ""}
 <label>Yönetici Kullanıcı Adı</label>
 <input name="username" minlength="3" maxlength="50" required autocomplete="username">
 <label>Yönetici Şifresi</label>
-<input type="password" name="password" minlength="12" maxlength="128" required autocomplete="new-password">
+<input name="password" type="password" minlength="12" maxlength="128" required autocomplete="new-password">
 <button type="submit">Yönetici Hesabını Oluştur</button>
 </form>
 </div>
@@ -514,7 +519,9 @@ main{
 async function handleAdminSetup(request, env) {
     if (!env.ADMIN_SETUP_KEY) {
         return htmlResponse(
-            setupPage("Kurulum anahtarı tanımlanmamış."),
+            setupPage(
+                "Kurulum anahtarı tanımlanmamış."
+            ),
             403
         );
     }
@@ -530,7 +537,9 @@ async function handleAdminSetup(request, env) {
     }
 
     if (request.method === "GET") {
-        return htmlResponse(setupPage());
+        return htmlResponse(
+            setupPage()
+        );
     }
 
     if (request.method !== "POST") {
@@ -542,7 +551,9 @@ async function handleAdminSetup(request, env) {
 
     if (!validFormOrigin(request)) {
         return htmlResponse(
-            setupPage("Geçersiz istek kaynağı."),
+            setupPage(
+                "Geçersiz istek kaynağı."
+            ),
             403
         );
     }
@@ -574,7 +585,10 @@ async function handleAdminSetup(request, env) {
         form.get("password") || ""
     );
 
-    const providedHash = await sha256(setupKey);
+    const providedHash = await sha256(
+        setupKey
+    );
+
     const expectedHash = await sha256(
         env.ADMIN_SETUP_KEY
     );
@@ -584,7 +598,9 @@ async function handleAdminSetup(request, env) {
         expectedHash
     )) {
         return htmlResponse(
-            setupPage("Kurulum anahtarı hatalı."),
+            setupPage(
+                "Kurulum anahtarı hatalı."
+            ),
             403
         );
     }
@@ -624,7 +640,11 @@ async function handleAdminSetup(request, env) {
         WHERE NOT EXISTS (
             SELECT 1 FROM admin_users
         )
-    `).bind(username, hash, salt).run();
+    `).bind(
+        username,
+        hash,
+        salt
+    ).run();
 
     if (
         !result.success ||
@@ -650,7 +670,9 @@ async function login(request, env) {
 
     if (!validFormOrigin(request)) {
         return htmlResponse(
-            loginPage("Geçersiz istek kaynağı."),
+            loginPage(
+                "Geçersiz istek kaynağı."
+            ),
             403
         );
     }
@@ -685,7 +707,9 @@ async function login(request, env) {
         password.length > 1024
     ) {
         return htmlResponse(
-            loginPage("Geçersiz giriş bilgileri."),
+            loginPage(
+                "Geçersiz giriş bilgileri."
+            ),
             400
         );
     }
@@ -713,7 +737,9 @@ async function login(request, env) {
 
     if (!valid) {
         return htmlResponse(
-            loginPage("Kullanıcı adı veya şifre hatalı."),
+            loginPage(
+                "Kullanıcı adı veya şifre hatalı."
+            ),
             401
         );
     }
@@ -729,7 +755,11 @@ async function login(request, env) {
         INSERT INTO admin_sessions
         (user_id, token_hash, expires_at)
         VALUES (?, ?, ?)
-    `).bind(user.id, tokenHash, expires).run();
+    `).bind(
+        user.id,
+        tokenHash,
+        expires
+    ).run();
 
     return redirect(
         "/admin",
@@ -738,10 +768,15 @@ async function login(request, env) {
 }
 
 async function logout(request, env) {
-    const token = getCookie(request, "anka_admin");
+    const token = getCookie(
+        request,
+        "anka_admin"
+    );
 
     if (/^[a-f0-9]{64}$/.test(token)) {
-        const tokenHash = await sha256(token);
+        const tokenHash = await sha256(
+            token
+        );
 
         await env.DB.prepare(`
             DELETE FROM admin_sessions
@@ -767,7 +802,9 @@ async function checkServices(env) {
 
     try {
         if (!env.DB) {
-            throw new Error("DB binding missing");
+            throw new Error(
+                "DB binding missing"
+            );
         }
 
         await env.DB.prepare(
@@ -776,12 +813,16 @@ async function checkServices(env) {
 
         services.d1 = true;
     } catch (error) {
-        errors.d1 = String(error.message || error);
+        errors.d1 = String(
+            error.message || error
+        );
     }
 
     try {
         if (!env.CONFIG) {
-            throw new Error("CONFIG binding missing");
+            throw new Error(
+                "CONFIG binding missing"
+            );
         }
 
         await env.CONFIG.get(
@@ -790,12 +831,16 @@ async function checkServices(env) {
 
         services.kv = true;
     } catch (error) {
-        errors.kv = String(error.message || error);
+        errors.kv = String(
+            error.message || error
+        );
     }
 
     try {
         if (!env.STORAGE) {
-            throw new Error("STORAGE binding missing");
+            throw new Error(
+                "STORAGE binding missing"
+            );
         }
 
         await env.STORAGE.head(
@@ -804,10 +849,15 @@ async function checkServices(env) {
 
         services.r2 = true;
     } catch (error) {
-        errors.r2 = String(error.message || error);
+        errors.r2 = String(
+            error.message || error
+        );
     }
 
-    return { services, errors };
+    return {
+        services,
+        errors
+    };
 }
 
 function handleError(error, path) {
@@ -819,8 +869,12 @@ function handleError(error, path) {
             errorId,
             path,
             name: error?.name || "Error",
-            message: String(error?.message || error),
-            stack: String(error?.stack || "")
+            message: String(
+                error?.message || error
+            ),
+            stack: String(
+                error?.stack || ""
+            )
         })
     );
 
@@ -842,8 +896,10 @@ function handleError(error, path) {
         );
     }
 
-    if (path === "/admin" ||
-        path === "/admin/login") {
+    if (
+        path === "/admin" ||
+        path === "/admin/login"
+    ) {
         return htmlResponse(
             loginPage(
                 "Sunucu hatası oluştu. " +
@@ -890,7 +946,10 @@ export default {
                     }, 405);
                 }
 
-                const result = await checkServices(env);
+                const result = await checkServices(
+                    env
+                );
+
                 const services = result.services;
 
                 const healthy =
@@ -931,7 +990,9 @@ export default {
 
                 return htmlResponse(
                     user
-                        ? dashboardPage(user.username)
+                        ? dashboardPage(
+                            user.username
+                        )
                         : loginPage()
                 );
             }
@@ -944,7 +1005,10 @@ export default {
                     }, 405);
                 }
 
-                return await login(request, env);
+                return await login(
+                    request,
+                    env
+                );
             }
 
             if (path === "/admin/logout") {
@@ -974,7 +1038,10 @@ export default {
                     }, 401);
                 }
 
-                return await logout(request, env);
+                return await logout(
+                    request,
+                    env
+                );
             }
 
             if (path === "/admin/me") {
@@ -1019,7 +1086,10 @@ export default {
             }, 404);
 
         } catch (error) {
-            return handleError(error, path);
+            return handleError(
+                error,
+                path
+            );
         }
     }
 };
