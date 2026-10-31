@@ -1,9 +1,9 @@
 
-// ANKA TV+ - Kullanıcı kayıt ve yönetim modülü
-// Cihaz kilidi ve yönetici cihaz sıfırlama desteği
+// ANKA TV+ - Kullanıcı Kayıt ve Yönetim Modülü
+// Yönetim paneli: /admin/manage
+// Cihaz kilidi: UUID ve eski 16 karakterlik kimlik desteği
 
 const encoder = new TextEncoder();
-
 const PBKDF2_ITERATIONS = 100000;
 const MAX_BODY_BYTES = 8192;
 
@@ -135,30 +135,21 @@ async function readJson(request) {
     ).toLowerCase();
 
     if (!type.startsWith("application/json")) {
-        throw new Error(
-            "JSON içerik türü gerekli."
-        );
+        throw new Error("JSON içerik türü gerekli.");
     }
 
-    const contentLength = Number(
+    const length = Number(
         request.headers.get("Content-Length") || 0
     );
 
-    if (contentLength > MAX_BODY_BYTES) {
-        throw new Error(
-            "İstek verisi çok büyük."
-        );
+    if (length > MAX_BODY_BYTES) {
+        throw new Error("İstek verisi çok büyük.");
     }
 
     const raw = await request.text();
 
-    if (
-        encoder.encode(raw).byteLength >
-        MAX_BODY_BYTES
-    ) {
-        throw new Error(
-            "İstek verisi çok büyük."
-        );
+    if (encoder.encode(raw).byteLength > MAX_BODY_BYTES) {
+        throw new Error("İstek verisi çok büyük.");
     }
 
     let data;
@@ -166,9 +157,7 @@ async function readJson(request) {
     try {
         data = JSON.parse(raw);
     } catch (_) {
-        throw new Error(
-            "Geçersiz JSON verisi."
-        );
+        throw new Error("Geçersiz JSON verisi.");
     }
 
     if (
@@ -176,9 +165,7 @@ async function readJson(request) {
         typeof data !== "object" ||
         Array.isArray(data)
     ) {
-        throw new Error(
-            "JSON nesnesi gerekli."
-        );
+        throw new Error("JSON nesnesi gerekli.");
     }
 
     return data;
@@ -192,148 +179,36 @@ function adminPage() {
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>ANKA TV+ Kullanıcı Yönetimi</title>
 <style>
-* {
-    box-sizing: border-box;
-}
-body {
-    margin: 0;
-    background: #151419;
-    color: #ffffff;
-    font-family: Arial, sans-serif;
-    font-size: 15px;
-}
-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    padding: 18px;
-    background: #1d1c21;
-    border-bottom: 1px solid #45454b;
-}
-h1 {
-    margin: 0;
-    color: #2db88a;
-    font-size: 20px;
-}
-header a {
-    color: #2db88a;
-    text-decoration: none;
-}
-main {
-    max-width: 1100px;
-    margin: auto;
-    padding: 18px;
-}
-.count,
-.meta {
-    color: #b8b8be;
-}
-.search {
-    display: block;
-    width: 100%;
-    padding: 14px;
-    background: #1d1c21;
-    border: 1px solid #45454b;
-    border-radius: 12px;
-    color: #ffffff;
-    font-size: 16px;
-}
-.filters {
-    display: flex;
-    gap: 9px;
-    overflow-x: auto;
-    margin: 20px 0;
-    padding-bottom: 5px;
-}
-button {
-    border: 0;
-    border-radius: 11px;
-    padding: 12px 15px;
-    background: #2db88a;
-    color: #10231a;
-    font-weight: bold;
-    cursor: pointer;
-}
-button.alt {
-    background: #303038;
-    color: #ffffff;
-}
-button.danger {
-    background: #62343c;
-    color: #ffffff;
-}
-button:disabled {
-    opacity: .5;
-}
-.filters button {
-    white-space: nowrap;
-}
-#notice {
-    min-height: 20px;
-    color: #ffaaaa;
-}
-.cards {
-    display: grid;
-    gap: 14px;
-}
-.card {
-    background: #1d1c21;
-    border: 1px solid #45454b;
-    border-radius: 14px;
-    padding: 18px;
-    overflow-wrap: anywhere;
-}
-.card h3 {
-    margin: 0 0 12px;
-}
-.meta {
-    line-height: 1.9;
-}
-.badge {
-    display: inline-block;
-    padding: 5px 11px;
-    border-radius: 20px;
-    background: #34343a;
-    color: #ffffff;
-    font-size: 12px;
-}
-.actions {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 9px;
-    margin-top: 16px;
-}
-.empty {
-    color: #b8b8be;
-    text-align: center;
-    padding: 40px 15px;
-    border: 1px dashed #45454b;
-    border-radius: 14px;
-}
-@media (min-width: 750px) {
-    .cards {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
-}
-@media (max-width: 480px) {
-    header,
-    main {
-        padding: 15px;
-    }
-    h1 {
-        font-size: 16px;
-    }
-    button {
-        padding: 12px;
-    }
-}
+*{box-sizing:border-box}
+body{margin:0;background:#151419;color:#fff;font-family:Arial,sans-serif;font-size:15px}
+header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:18px;background:#1d1c21;border-bottom:1px solid #45454b}
+h1{margin:0;color:#2db88a;font-size:20px}
+header a{color:#2db88a;text-decoration:none}
+main{max-width:1100px;margin:auto;padding:18px}
+.count,.meta{color:#b8b8be}
+.search{display:block;width:100%;padding:14px;background:#1d1c21;border:1px solid #45454b;border-radius:12px;color:#fff;font-size:16px}
+.filters{display:flex;gap:9px;overflow-x:auto;margin:20px 0;padding-bottom:5px}
+button{border:0;border-radius:11px;padding:12px 15px;background:#2db88a;color:#10231a;font-weight:bold;cursor:pointer}
+button.alt{background:#303038;color:#fff}
+button.danger{background:#62343c;color:#fff}
+button:disabled{opacity:.5}
+.filters button{white-space:nowrap}
+#notice{min-height:20px;color:#ffaaaa}
+.cards{display:grid;gap:14px}
+.card{background:#1d1c21;border:1px solid #45454b;border-radius:14px;padding:18px;overflow-wrap:anywhere}
+.card h3{margin:0 0 12px}
+.meta{line-height:1.9}
+.badge{display:inline-block;padding:5px 11px;border-radius:20px;background:#34343a;color:#fff;font-size:12px}
+.actions{display:flex;flex-wrap:wrap;gap:9px;margin-top:16px}
+.empty{color:#b8b8be;text-align:center;padding:40px 15px;border:1px dashed #45454b;border-radius:14px}
+@media(min-width:750px){.cards{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:480px){header,main{padding:15px}h1{font-size:16px}button{padding:12px}}
 </style>
 </head>
 <body>
 <header>
     <h1>ANKA TV+ - Kullanıcı Yönetimi</h1>
-    <a href="/admin/manage">Panele Dön</a>
+    <a href="/admin">Panele Dön</a>
 </header>
 <main>
     <p class="count" id="count">Yükleniyor...</p>
@@ -390,9 +265,7 @@ async function api(action, data) {
                     "X-Anka-Admin": "1"
                 }
                 : {},
-            body: post
-                ? JSON.stringify(data)
-                : undefined
+            body: post ? JSON.stringify(data) : undefined
         }
     );
 
@@ -584,21 +457,13 @@ async function registerUser(request, env) {
         );
     }
 
-    const username = String(
-        body.username ?? ""
-    ).trim();
-
-    const email = String(
-        body.email ?? ""
-    ).trim().toLowerCase();
-
-    const password = String(
-        body.password ?? ""
-    );
+    const username = String(body.username ?? "").trim();
+    const email = String(body.email ?? "").trim().toLowerCase();
+    const password = String(body.password ?? "");
 
     if (!/^[a-zA-Z0-9_]{3,40}$/.test(username)) {
         return err(
-            "Kullanıcı adı 3-40 karakter olmalıdır. Harf, rakam ve alt çizgi kullanılabilir.",
+            "Kullanıcı adı 3-40 karakter olmalıdır.",
             422
         );
     }
@@ -686,7 +551,7 @@ async function registerUser(request, env) {
         }
 
         return err(
-            "Kayıt veritabanına yazılamadı. D1 tablo yapısını kontrol edin.",
+            "Kayıt veritabanına yazılamadı.",
             500
         );
     }
@@ -746,11 +611,7 @@ async function listUsers(request, env) {
     });
 }
 
-async function changeUserStatus(
-    request,
-    env,
-    admin
-) {
+async function changeUserStatus(request, env, admin) {
     if (request.method !== "POST") {
         return err("POST gerekli.", 405);
     }
@@ -895,7 +756,7 @@ export async function handleAnkaUsers(
 ) {
     if (!env.DB) {
         return err(
-            "Cloudflare D1 DB binding bulunamadı.",
+            "Cloudflare D1 DB bağlantısı bulunamadı.",
             503
         );
     }
@@ -912,7 +773,7 @@ export async function handleAnkaUsers(
         const admin = await getAdmin(request, env);
 
         if (!admin) {
-            if (path === "/admin/users") {
+            if (path === "/admin/manage") {
                 return new Response(null, {
                     status: 303,
                     headers: {
@@ -928,7 +789,7 @@ export async function handleAnkaUsers(
             );
         }
 
-        if (path === "/admin/users") {
+        if (path === "/admin/manage") {
             if (request.method !== "GET") {
                 return err("GET gerekli.", 405);
             }
