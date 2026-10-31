@@ -1,8 +1,4 @@
 
-// ANKA TV+ - Kullanıcı Kayıt ve Yönetim Modülü
-// Yönetim paneli: /admin/manage
-// Cihaz kilidi: UUID ve eski 16 karakterlik kimlik desteği
-
 const encoder = new TextEncoder();
 const PBKDF2_ITERATIONS = 100000;
 const MAX_BODY_BYTES = 8192;
@@ -13,29 +9,22 @@ function json(data, status = 200) {
         headers: {
             "Content-Type": "application/json; charset=utf-8",
             "Cache-Control": "no-store",
-            "X-Content-Type-Options": "nosniff",
-            "Referrer-Policy": "no-referrer"
+            "X-Content-Type-Options": "nosniff"
         }
     });
 }
 
-function err(message, status = 400) {
+function error(message, status = 400) {
     return json({
         success: false,
         error: message
     }, status);
 }
 
-function bytesToHex(bytes) {
+function hex(bytes) {
     return Array.from(bytes)
-        .map(v => v.toString(16).padStart(2, "0"))
+        .map(byte => byte.toString(16).padStart(2, "0"))
         .join("");
-}
-
-function randomSalt() {
-    const bytes = new Uint8Array(24);
-    crypto.getRandomValues(bytes);
-    return bytesToHex(bytes);
 }
 
 async function sha256(value) {
@@ -44,30 +33,33 @@ async function sha256(value) {
         encoder.encode(value)
     );
 
-    return bytesToHex(new Uint8Array(digest));
+    return hex(new Uint8Array(digest));
 }
 
-async function deviceHash(request) {
-    const id = (
+async function getDeviceHash(request) {
+    const deviceId = String(
         request.headers.get("X-Anka-Device-Id") || ""
     ).trim().toLowerCase();
 
-    const uuidPattern =
+    const uuid =
         /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
-    const legacyPattern = /^[0-9a-f]{16}$/;
+    const legacy = /^[0-9a-f]{16}$/;
 
-    if (
-        !uuidPattern.test(id) &&
-        !legacyPattern.test(id)
-    ) {
+    if (!uuid.test(deviceId) && !legacy.test(deviceId)) {
         return null;
     }
 
-    return await sha256("anka-device-v1:" + id);
+    return sha256("anka-device-v1:" + deviceId);
 }
 
-async function derivePassword(password, salt) {
+function randomSalt() {
+    const bytes = new Uint8Array(24);
+    crypto.getRandomValues(bytes);
+    return hex(bytes);
+}
+
+async function passwordHash(password, salt) {
     const key = await crypto.subtle.importKey(
         "raw",
         encoder.encode(password),
@@ -87,68 +79,29 @@ async function derivePassword(password, salt) {
         256
     );
 
-    return bytesToHex(new Uint8Array(bits));
+    return hex(new Uint8Array(bits));
 }
 
-function safeAdminPost(request) {
-    const expected = new URL(request.url).origin;
-    const origin = request.headers.get("Origin");
-    const referer = request.headers.get("Referer");
-    const fetchSite = request.headers.get("Sec-Fetch-Site");
-
-    if (fetchSite === "cross-site") {
-        return false;
-    }
-
-    if (
-        origin &&
-        origin !== "null" &&
-        origin !== expected
-    ) {
-        return false;
-    }
-
-    if (referer) {
-        try {
-            if (new URL(referer).origin !== expected) {
-                return false;
-            }
-        } catch (_) {
-            return false;
-        }
-    }
-
-    if (
-        !origin &&
-        !referer &&
-        fetchSite !== "same-origin"
-    ) {
-        return false;
-    }
-
-    return request.headers.get("X-Anka-Admin") === "1";
-}
-
-async function readJson(request) {
-    const type = (
+async function readBody(request) {
+    const contentType = (
         request.headers.get("Content-Type") || ""
     ).toLowerCase();
 
-    if (!type.startsWith("application/json")) {
+    if (!contentType.startsWith("application/json")) {
         throw new Error("JSON içerik türü gerekli.");
     }
 
-    const length = Number(
+    const contentLength = Number(
         request.headers.get("Content-Length") || 0
     );
 
-    if (length > MAX_BODY_BYTES) {
+    if (contentLength > MAX_BODY_BYTES) {
         throw new Error("İstek verisi çok büyük.");
     }
 
     const raw = await request.text();
 
-    if (encoder.encode(raw).byteLength > MAX_BODY_BYTES) {
+    if (encoder.encode(raw).length > MAX_BODY_BYTES) {
         throw new Error("İstek verisi çok büyük.");
     }
 
@@ -157,7 +110,7 @@ async function readJson(request) {
     try {
         data = JSON.parse(raw);
     } catch (_) {
-        throw new Error("Geçersiz JSON verisi.");
+        throw new Error("Geçersiz JSON.");
     }
 
     if (
@@ -171,71 +124,227 @@ async function readJson(request) {
     return data;
 }
 
-function adminPage() {
+function verifyAdminRequest(request) {
+    if (request.headers.get("X-Anka-Admin") !== "1") {
+        return false;
+    }
+
+    const origin = new URL(request.url).origin;
+    const requestOrigin = request.headers.get("Origin");
+    const referer = request.headers.get("Referer");
+    const fetchSite = request.headers.get("Sec-Fetch-Site");
+
+    if (fetchSite === "cross-site") {
+        return false;
+    }
+
+    if (requestOrigin && requestOrigin !== origin) {
+        return false;
+    }
+
+    if (referer) {
+        try {
+            if (new URL(referer).origin !== origin) {
+                return false;
+            }
+        } catch (_) {
+            return false;
+        }
+    }
+
+    if (
+        !requestOrigin &&
+        !referer &&
+        fetchSite !== "same-origin"
+    ) {
+        return false;
+    }
+
+    return true;
+}
+
+function htmlPage() {
     return `<!DOCTYPE html>
 <html lang="tr">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>ANKA TV+ Kullanıcı Yönetimi</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ANKA TV+ - Kullanıcı Yönetimi</title>
 <style>
-*{box-sizing:border-box}
-body{margin:0;background:#151419;color:#fff;font-family:Arial,sans-serif;font-size:15px}
-header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:18px;background:#1d1c21;border-bottom:1px solid #45454b}
-h1{margin:0;color:#2db88a;font-size:20px}
-header a{color:#2db88a;text-decoration:none}
-main{max-width:1100px;margin:auto;padding:18px}
-.count,.meta{color:#b8b8be}
-.search{display:block;width:100%;padding:14px;background:#1d1c21;border:1px solid #45454b;border-radius:12px;color:#fff;font-size:16px}
-.filters{display:flex;gap:9px;overflow-x:auto;margin:20px 0;padding-bottom:5px}
-button{border:0;border-radius:11px;padding:12px 15px;background:#2db88a;color:#10231a;font-weight:bold;cursor:pointer}
-button.alt{background:#303038;color:#fff}
-button.danger{background:#62343c;color:#fff}
-button:disabled{opacity:.5}
-.filters button{white-space:nowrap}
-#notice{min-height:20px;color:#ffaaaa}
-.cards{display:grid;gap:14px}
-.card{background:#1d1c21;border:1px solid #45454b;border-radius:14px;padding:18px;overflow-wrap:anywhere}
-.card h3{margin:0 0 12px}
-.meta{line-height:1.9}
-.badge{display:inline-block;padding:5px 11px;border-radius:20px;background:#34343a;color:#fff;font-size:12px}
-.actions{display:flex;flex-wrap:wrap;gap:9px;margin-top:16px}
-.empty{color:#b8b8be;text-align:center;padding:40px 15px;border:1px dashed #45454b;border-radius:14px}
-@media(min-width:750px){.cards{grid-template-columns:repeat(2,minmax(0,1fr))}}
-@media(max-width:480px){header,main{padding:15px}h1{font-size:16px}button{padding:12px}}
+* {
+    box-sizing: border-box;
+}
+body {
+    margin: 0;
+    background: #151419;
+    color: #fff;
+    font-family: Arial, sans-serif;
+    font-size: 14px;
+}
+header {
+    padding: 20px;
+    background: #1d1c21;
+    border-bottom: 1px solid #45454b;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+header h1 {
+    margin: 0;
+    color: #2db88a;
+    font-size: 20px;
+}
+header a {
+    color: #2db88a;
+    text-decoration: none;
+}
+main {
+    max-width: 1150px;
+    margin: auto;
+    padding: 20px;
+}
+input {
+    width: 100%;
+    padding: 15px;
+    background: #1d1c21;
+    border: 1px solid #45454b;
+    border-radius: 12px;
+    color: white;
+    font-size: 15px;
+    outline: none;
+}
+input:focus {
+    border-color: #2db88a;
+}
+.filters {
+    display: flex;
+    gap: 10px;
+    overflow-x: auto;
+    margin: 20px 0;
+}
+button {
+    padding: 11px 15px;
+    border: 0;
+    border-radius: 10px;
+    background: #2db88a;
+    color: #10251c;
+    font-weight: bold;
+    cursor: pointer;
+}
+button.secondary {
+    background: #303038;
+    color: white;
+}
+button.danger {
+    background: #68333c;
+    color: white;
+}
+button:disabled {
+    opacity: .5;
+}
+.filters button {
+    white-space: nowrap;
+}
+#notice {
+    color: #ff9d9d;
+    min-height: 20px;
+}
+#count {
+    color: #b8b8be;
+}
+.cards {
+    display: grid;
+    gap: 15px;
+}
+.card {
+    padding: 20px;
+    border-radius: 14px;
+    background: #1d1c21;
+    border: 1px solid #45454b;
+    overflow-wrap: anywhere;
+}
+.card h3 {
+    margin: 0 0 12px;
+    font-size: 18px;
+}
+.details {
+    color: #b8b8be;
+    line-height: 1.9;
+}
+.status {
+    display: inline-block;
+    padding: 5px 12px;
+    background: #34343a;
+    border-radius: 20px;
+    color: white;
+    font-size: 12px;
+}
+.actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 16px;
+}
+.empty {
+    text-align: center;
+    color: #b8b8be;
+    padding: 40px 15px;
+    border: 1px dashed #45454b;
+    border-radius: 14px;
+}
+@media(min-width:750px) {
+    .cards {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+@media(max-width:500px) {
+    header {
+        padding: 15px;
+    }
+    header h1 {
+        font-size: 16px;
+    }
+    main {
+        padding: 15px;
+    }
+}
 </style>
 </head>
 <body>
 <header>
-    <h1>ANKA TV+ - Kullanıcı Yönetimi</h1>
-    <a href="/admin">Panele Dön</a>
+    <h1>ANKA TV+ Kullanıcı Yönetimi</h1>
+    <a href="/admin">Ana Panele Dön</a>
 </header>
 <main>
-    <p class="count" id="count">Yükleniyor...</p>
+    <p id="count">Kullanıcılar yükleniyor...</p>
+
     <input
-        class="search"
-        id="search"
         type="search"
+        id="search"
         placeholder="Kullanıcı adı veya e-posta ara"
         autocomplete="off"
     >
+
     <div class="filters">
         <button data-filter="pending">Onay Bekleyen</button>
-        <button class="alt" data-filter="approved">Onaylanan</button>
-        <button class="alt" data-filter="rejected">Reddedilen</button>
-        <button class="alt" data-filter="disabled">Pasif</button>
-        <button class="alt" data-filter="all">Tümü</button>
+        <button class="secondary" data-filter="approved">Onaylanan</button>
+        <button class="secondary" data-filter="rejected">Reddedilen</button>
+        <button class="secondary" data-filter="disabled">Pasif</button>
+        <button class="secondary" data-filter="all">Tümü</button>
     </div>
+
     <p id="notice" role="status"></p>
-    <div class="cards" id="rows"></div>
+    <div id="cards" class="cards"></div>
 </main>
+
 <script>
-let currentStatus = "pending";
+let filter = "pending";
 let users = [];
 
-const $ = id => document.getElementById(id);
+const el = id => document.getElementById(id);
 
-function esc(value) {
+function escapeHtml(value) {
     return String(value ?? "").replace(
         /[&<>"']/g,
         c => ({
@@ -244,32 +353,50 @@ function esc(value) {
             ">": "&gt;",
             '"': "&quot;",
             "'": "&#39;"
-        }[c])
+        })[c]
     );
 }
 
-async function api(action, data) {
-    const post = data !== undefined;
+function statusText(status) {
+    return ({
+        pending: "Onay Bekliyor",
+        approved: "Onaylandı",
+        rejected: "Reddedildi",
+        disabled: "Pasif"
+    })[status] || status;
+}
 
-    const response = await fetch(
-        "/admin/users/api?action=" +
+async function api(action, body) {
+    const isPost = body !== undefined;
+
+    const url = "/admin/users/api?action=" +
         encodeURIComponent(action) +
-        (post ? "" : "&status=" + encodeURIComponent(currentStatus)),
-        {
-            method: post ? "POST" : "GET",
-            credentials: "same-origin",
-            cache: "no-store",
-            headers: post
-                ? {
-                    "Content-Type": "application/json",
-                    "X-Anka-Admin": "1"
-                }
-                : {},
-            body: post ? JSON.stringify(data) : undefined
-        }
-    );
+        (isPost
+            ? ""
+            : "&status=" + encodeURIComponent(filter));
 
-    const result = await response.json();
+    const response = await fetch(url, {
+        method: isPost ? "POST" : "GET",
+        credentials: "same-origin",
+        cache: "no-store",
+        headers: isPost
+            ? {
+                "Content-Type": "application/json",
+                "X-Anka-Admin": "1"
+            }
+            : {},
+        body: isPost ? JSON.stringify(body) : undefined
+    });
+
+    let result;
+
+    try {
+        result = await response.json();
+    } catch (_) {
+        throw new Error(
+            "Sunucudan geçerli JSON yanıtı alınamadı."
+        );
+    }
 
     if (!response.ok || !result.success) {
         throw new Error(
@@ -280,156 +407,174 @@ async function api(action, data) {
     return result;
 }
 
-function statusName(status) {
-    return ({
-        pending: "Onay Bekliyor",
-        approved: "Onaylandı",
-        rejected: "Reddedildi",
-        disabled: "Pasif"
-    })[status] || status;
-}
-
 function render() {
-    const query = $("search")
+    const search = el("search")
         .value
         .toLocaleLowerCase("tr-TR");
 
-    const rows = users.filter(user => (
-        user.username + " " + user.email
-    ).toLocaleLowerCase("tr-TR").includes(query));
+    const filtered = users.filter(user => {
+        const value = (
+            user.username + " " + user.email
+        ).toLocaleLowerCase("tr-TR");
 
-    $("count").textContent =
-        users.length + " kullanıcı";
+        return value.includes(search);
+    });
 
-    if (!rows.length) {
-        $("rows").innerHTML =
-            '<div class="empty">Bu bölümde kullanıcı bulunamadı.</div>';
+    el("count").textContent =
+        filtered.length + " kullanıcı gösteriliyor";
+
+    if (!filtered.length) {
+        el("cards").innerHTML =
+            '<div class="empty">Kullanıcı bulunamadı.</div>';
         return;
     }
 
-    $("rows").innerHTML = rows.map(user => {
-        let actions = "";
+    el("cards").innerHTML = filtered.map(user => {
+        let buttons = "";
 
         for (const status of [
             "approved",
             "rejected",
             "disabled"
         ]) {
-            if (user.status !== status) {
-                actions +=
-                    '<button class="' +
-                    (status === "disabled" ? "danger" : "alt") +
-                    '" data-id="' + esc(user.id) +
-                    '" data-status="' + status + '">' +
-                    (status === "approved"
-                        ? "Onayla"
-                        : status === "rejected"
-                            ? "Reddet"
-                            : "Pasif Yap") +
-                    '</button>';
+            if (user.status === status) {
+                continue;
             }
+
+            const label =
+                status === "approved"
+                    ? "Onayla"
+                    : status === "rejected"
+                        ? "Reddet"
+                        : "Pasif Yap";
+
+            buttons +=
+                '<button class="' +
+                (status === "disabled"
+                    ? "danger"
+                    : "secondary") +
+                '" data-id="' +
+                escapeHtml(user.id) +
+                '" data-status="' +
+                status +
+                '">' +
+                label +
+                '</button>';
         }
 
         if (user.device_bound) {
-            actions +=
-                '<button class="alt" data-id="' +
-                esc(user.id) +
+            buttons +=
+                '<button class="secondary" data-id="' +
+                escapeHtml(user.id) +
                 '" data-reset="1">Cihazı Sıfırla</button>';
         }
 
+        const created = Number(user.created_at);
+
+        const createdText = Number.isFinite(created)
+            ? new Date(created * 1000)
+                .toLocaleString("tr-TR")
+            : "-";
+
         return '<article class="card">' +
-            '<h3>' + esc(user.username) + '</h3>' +
-            '<div class="meta">' +
-            'E-posta: ' + esc(user.email) +
-            '<div><span class="badge">' +
-            esc(statusName(user.status)) +
+            '<h3>' + escapeHtml(user.username) + '</h3>' +
+            '<div class="details">' +
+            'E-posta: ' + escapeHtml(user.email) +
+            '<div>Durum: <span class="status">' +
+            escapeHtml(statusText(user.status)) +
             '</span></div>' +
-            'Kayıt: ' +
-            esc(new Date(Number(user.created_at) * 1000)
-                .toLocaleString("tr-TR")) +
+            '<div>Kayıt: ' +
+            escapeHtml(createdText) +
+            '</div>' +
             '<div>Cihaz: ' +
             (user.device_bound
                 ? "Bağlı"
-                : "Henüz bağlanmadı") +
-            '</div></div>' +
+                : "Bağlı değil") +
+            '</div>' +
+            '</div>' +
             '<div class="actions">' +
-            actions +
-            '</div></article>';
+            buttons +
+            '</div>' +
+            '</article>';
     }).join("");
 }
 
-async function load() {
-    $("notice").textContent = "";
+async function loadUsers() {
+    el("notice").textContent = "";
 
     try {
         const result = await api("list");
-        users = result.items || [];
+
+        users = Array.isArray(result.items)
+            ? result.items
+            : [];
+
         render();
     } catch (e) {
-        $("notice").textContent = e.message;
+        el("notice").textContent = e.message;
     }
 }
 
-document.querySelectorAll(".filters button")
+document.querySelectorAll("[data-filter]")
     .forEach(button => {
         button.addEventListener("click", () => {
-            currentStatus = button.dataset.filter;
+            filter = button.dataset.filter;
 
-            document.querySelectorAll(".filters button")
+            document.querySelectorAll("[data-filter]")
                 .forEach(item => {
                     item.className =
-                        item === button ? "" : "alt";
+                        item === button
+                            ? ""
+                            : "secondary";
                 });
 
-            load();
+            loadUsers();
         });
     });
 
-$("search").addEventListener("input", render);
+el("search").addEventListener("input", render);
 
-$("rows").addEventListener("click", async event => {
-    const button = event.target.closest("button[data-id]");
+el("cards").addEventListener("click", async event => {
+    const button = event.target.closest(
+        "button[data-id]"
+    );
 
     if (!button) {
         return;
     }
 
+    const id = button.dataset.id;
     const reset = button.dataset.reset === "1";
-    const next = button.dataset.status;
+    const status = button.dataset.status;
 
-    const question = reset
-        ? "Cihaz bağlantısı sıfırlansın mı? Kullanıcının mevcut oturumları da kapatılacak."
-        : "Kullanıcının durumu " +
-          statusName(next) +
+    const message = reset
+        ? "Cihaz bağlantısı sıfırlansın mı? Mevcut oturumlar kapatılacak."
+        : "Kullanıcı durumu " +
+          statusText(status) +
           " olarak değiştirilsin mi?";
 
-    if (!confirm(question)) {
+    if (!confirm(message)) {
         return;
     }
 
     button.disabled = true;
 
     try {
-        await api(
-            reset ? "reset-device" : "status",
-            reset
-                ? { id: button.dataset.id }
-                : {
-                    id: button.dataset.id,
-                    status: next
-                }
-        );
+        if (reset) {
+            await api("reset-device", { id });
+        } else {
+            await api("status", { id, status });
+        }
 
-        await load();
-
+        await loadUsers();
     } catch (e) {
-        $("notice").textContent = e.message;
+        el("notice").textContent = e.message;
     } finally {
         button.disabled = false;
     }
 });
 
-load();
+loadUsers();
 </script>
 </body>
 </html>`;
@@ -437,32 +582,40 @@ load();
 
 async function registerUser(request, env) {
     if (request.method !== "POST") {
-        return err("POST gerekli.", 405);
+        return error("POST gerekli.", 405);
     }
 
     let body;
 
     try {
-        body = await readJson(request);
+        body = await readBody(request);
     } catch (e) {
-        return err(e.message, 400);
+        return error(e.message, 400);
     }
 
-    const hashDevice = await deviceHash(request);
+    const device = await getDeviceHash(request);
 
-    if (!hashDevice) {
-        return err(
-            "Geçerli cihaz kimliği gerekli. Uygulamayı güncelleyin.",
+    if (!device) {
+        return error(
+            "Geçerli cihaz kimliği gerekli.",
             422
         );
     }
 
-    const username = String(body.username ?? "").trim();
-    const email = String(body.email ?? "").trim().toLowerCase();
-    const password = String(body.password ?? "");
+    const username = String(
+        body.username ?? ""
+    ).trim();
+
+    const email = String(
+        body.email ?? ""
+    ).trim().toLowerCase();
+
+    const password = String(
+        body.password ?? ""
+    );
 
     if (!/^[a-zA-Z0-9_]{3,40}$/.test(username)) {
-        return err(
+        return error(
             "Kullanıcı adı 3-40 karakter olmalıdır.",
             422
         );
@@ -472,8 +625,8 @@ async function registerUser(request, env) {
         email.length > 254 ||
         !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
     ) {
-        return err(
-            "Geçerli bir e-posta adresi giriniz.",
+        return error(
+            "Geçerli e-posta adresi giriniz.",
             422
         );
     }
@@ -482,14 +635,14 @@ async function registerUser(request, env) {
         password.length < 12 ||
         password.length > 128
     ) {
-        return err(
-            "Şifre 12-128 karakter arasında olmalıdır.",
+        return error(
+            "Şifre 12-128 karakter olmalıdır.",
             422
         );
     }
 
     const salt = randomSalt();
-    const hash = await derivePassword(password, salt);
+    const hash = await passwordHash(password, salt);
     const now = Math.floor(Date.now() / 1000);
 
     try {
@@ -514,7 +667,7 @@ async function registerUser(request, env) {
             salt,
             "pending",
             now,
-            hashDevice,
+            device,
             now
         ).run();
 
@@ -522,14 +675,16 @@ async function registerUser(request, env) {
             success: true,
             status: "pending",
             message:
-                "Kayıt başarılı. Hesabınız yönetici onayı bekliyor."
+                "Kayıt başarılı. Yönetici onayı bekleniyor."
         }, 201);
 
     } catch (e) {
-        const message = String(e?.message || e);
+        const message = String(
+            e?.message || e
+        );
 
         console.error(
-            "ANKA_REGISTER_DATABASE_ERROR",
+            "ANKA_REGISTER_ERROR",
             message
         );
 
@@ -537,21 +692,21 @@ async function registerUser(request, env) {
             /UNIQUE constraint failed.*device_hash/i.test(message) ||
             /idx_app_users_device_hash/i.test(message)
         ) {
-            return err(
-                "Bu cihazda zaten bir hesap oluşturulmuş.",
+            return error(
+                "Bu cihazda zaten bir hesap bulunmaktadır.",
                 409
             );
         }
 
         if (/UNIQUE constraint failed/i.test(message)) {
-            return err(
+            return error(
                 "Kullanıcı adı veya e-posta zaten kayıtlı.",
                 409
             );
         }
 
-        return err(
-            "Kayıt veritabanına yazılamadı.",
+        return error(
+            "Kayıt sırasında veritabanı hatası oluştu.",
             500
         );
     }
@@ -559,22 +714,23 @@ async function registerUser(request, env) {
 
 async function listUsers(request, env) {
     if (request.method !== "GET") {
-        return err("GET gerekli.", 405);
+        return error("GET gerekli.", 405);
     }
 
-    const status =
-        new URL(request.url).searchParams.get("status") ||
-        "pending";
+    const status = new URL(request.url)
+        .searchParams.get("status") || "pending";
 
-    if (![
+    const allowed = [
         "pending",
         "approved",
         "rejected",
         "disabled",
         "all"
-    ].includes(status)) {
-        return err(
-            "Geçersiz kullanıcı filtresi.",
+    ];
+
+    if (!allowed.includes(status)) {
+        return error(
+            "Geçersiz filtre.",
             400
         );
     }
@@ -592,7 +748,9 @@ async function listUsers(request, env) {
                 ELSE 1
             END AS device_bound
         FROM app_users
-        ${status === "all" ? "" : "WHERE status = ?"}
+        ${status === "all"
+            ? ""
+            : "WHERE status = ?"}
         ORDER BY created_at DESC
         LIMIT 500
     `;
@@ -611,14 +769,14 @@ async function listUsers(request, env) {
     });
 }
 
-async function changeUserStatus(request, env, admin) {
+async function updateStatus(request, env, admin) {
     if (request.method !== "POST") {
-        return err("POST gerekli.", 405);
+        return error("POST gerekli.", 405);
     }
 
-    if (!safeAdminPost(request)) {
-        return err(
-            "Geçersiz yönetici istek kaynağı.",
+    if (!verifyAdminRequest(request)) {
+        return error(
+            "Yetkisiz yönetici isteği.",
             403
         );
     }
@@ -626,9 +784,9 @@ async function changeUserStatus(request, env, admin) {
     let body;
 
     try {
-        body = await readJson(request);
+        body = await readBody(request);
     } catch (e) {
-        return err(e.message, 400);
+        return error(e.message, 400);
     }
 
     const id = String(body.id ?? "");
@@ -636,9 +794,13 @@ async function changeUserStatus(request, env, admin) {
 
     if (
         !/^[0-9a-f-]{36}$/i.test(id) ||
-        !["approved", "rejected", "disabled"].includes(status)
+        ![
+            "approved",
+            "rejected",
+            "disabled"
+        ].includes(status)
     ) {
-        return err(
+        return error(
             "Geçersiz kullanıcı işlemi.",
             422
         );
@@ -646,7 +808,7 @@ async function changeUserStatus(request, env, admin) {
 
     const now = Math.floor(Date.now() / 1000);
 
-    const results = await env.DB.batch([
+    const result = await env.DB.batch([
         env.DB.prepare(`
             UPDATE app_users
             SET
@@ -657,7 +819,7 @@ async function changeUserStatus(request, env, admin) {
         `).bind(
             status,
             now,
-            admin.id,
+            String(admin.id),
             id
         ),
         env.DB.prepare(`
@@ -674,8 +836,8 @@ async function changeUserStatus(request, env, admin) {
         )
     ]);
 
-    if (!results[0]?.meta?.changes) {
-        return err(
+    if (!result[0]?.meta?.changes) {
+        return error(
             "Kullanıcı bulunamadı.",
             404
         );
@@ -683,18 +845,18 @@ async function changeUserStatus(request, env, admin) {
 
     return json({
         success: true,
-        message: "Kullanıcı durumu güncellendi."
+        message: "Kullanıcı güncellendi."
     });
 }
 
 async function resetDevice(request, env) {
     if (request.method !== "POST") {
-        return err("POST gerekli.", 405);
+        return error("POST gerekli.", 405);
     }
 
-    if (!safeAdminPost(request)) {
-        return err(
-            "Geçersiz yönetici istek kaynağı.",
+    if (!verifyAdminRequest(request)) {
+        return error(
+            "Yetkisiz yönetici isteği.",
             403
         );
     }
@@ -702,15 +864,15 @@ async function resetDevice(request, env) {
     let body;
 
     try {
-        body = await readJson(request);
+        body = await readBody(request);
     } catch (e) {
-        return err(e.message, 400);
+        return error(e.message, 400);
     }
 
     const id = String(body.id ?? "");
 
     if (!/^[0-9a-f-]{36}$/i.test(id)) {
-        return err(
+        return error(
             "Geçersiz kullanıcı kimliği.",
             422
         );
@@ -718,7 +880,7 @@ async function resetDevice(request, env) {
 
     const now = Math.floor(Date.now() / 1000);
 
-    const results = await env.DB.batch([
+    const result = await env.DB.batch([
         env.DB.prepare(`
             UPDATE app_users
             SET
@@ -735,8 +897,8 @@ async function resetDevice(request, env) {
         `).bind(now, id)
     ]);
 
-    if (!results[0]?.meta?.changes) {
-        return err(
+    if (!result[0]?.meta?.changes) {
+        return error(
             "Kullanıcı bulunamadı.",
             404
         );
@@ -745,7 +907,7 @@ async function resetDevice(request, env) {
     return json({
         success: true,
         message:
-            "Cihaz bağlantısı sıfırlandı. Kullanıcı ilk başarılı girişte yeni cihaza bağlanacak."
+            "Cihaz sıfırlandı. Yeni girişte cihaz yeniden bağlanacak."
     });
 }
 
@@ -755,8 +917,8 @@ export async function handleAnkaUsers(
     getAdmin
 ) {
     if (!env.DB) {
-        return err(
-            "Cloudflare D1 DB bağlantısı bulunamadı.",
+        return error(
+            "Cloudflare D1 veritabanı bulunamadı.",
             503
         );
     }
@@ -766,8 +928,28 @@ export async function handleAnkaUsers(
     const action = url.searchParams.get("action");
 
     try {
+        // Eski kullanıcı yönetimi adresini yeni adrese yönlendir.
+        if (path === "/admin/users") {
+            return new Response(null, {
+                status: 302,
+                headers: {
+                    Location: "/admin/manage",
+                    "Cache-Control": "no-store"
+                }
+            });
+        }
+
+        // Android kayıt işlemi.
         if (path === "/api/app/register") {
             return await registerUser(request, env);
+        }
+
+        // Yönetici yetkilendirmesi.
+        if (typeof getAdmin !== "function") {
+            return error(
+                "Yönetici doğrulama fonksiyonu bulunamadı.",
+                500
+            );
         }
 
         const admin = await getAdmin(request, env);
@@ -783,21 +965,23 @@ export async function handleAnkaUsers(
                 });
             }
 
-            return err(
+            return error(
                 "Yönetici oturumu gerekli.",
                 401
             );
         }
 
+        // Yönetici paneli.
         if (path === "/admin/manage") {
             if (request.method !== "GET") {
-                return err("GET gerekli.", 405);
+                return error("GET gerekli.", 405);
             }
 
-            return new Response(adminPage(), {
+            return new Response(htmlPage(), {
                 status: 200,
                 headers: {
-                    "Content-Type": "text/html; charset=utf-8",
+                    "Content-Type":
+                        "text/html; charset=utf-8",
                     "Cache-Control": "no-store",
                     "X-Frame-Options": "DENY",
                     "X-Content-Type-Options": "nosniff",
@@ -813,31 +997,35 @@ export async function handleAnkaUsers(
             });
         }
 
-        if (path !== "/admin/users/api") {
-            return err(
-                "Sayfa bulunamadı.",
+        // Yönetici API.
+        if (path === "/admin/users/api") {
+            if (action === "list") {
+                return await listUsers(request, env);
+            }
+
+            if (action === "status") {
+                return await updateStatus(
+                    request,
+                    env,
+                    admin
+                );
+            }
+
+            if (action === "reset-device") {
+                return await resetDevice(
+                    request,
+                    env
+                );
+            }
+
+            return error(
+                "Bilinmeyen işlem.",
                 404
             );
         }
 
-        if (action === "list") {
-            return await listUsers(request, env);
-        }
-
-        if (action === "status") {
-            return await changeUserStatus(
-                request,
-                env,
-                admin
-            );
-        }
-
-        if (action === "reset-device") {
-            return await resetDevice(request, env);
-        }
-
-        return err(
-            "Bilinmeyen işlem.",
+        return error(
+            "Sayfa bulunamadı.",
             404
         );
 
@@ -848,7 +1036,7 @@ export async function handleAnkaUsers(
             e?.message
         );
 
-        return err(
+        return error(
             "Sunucu işlemi tamamlanamadı.",
             500
         );
