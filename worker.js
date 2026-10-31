@@ -320,10 +320,176 @@ async function checkServices(env) {
     return services;
 }
 
+
+
+function setupPage() {
+    return `<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ANKA TV+ İlk Kurulum</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;background:#151419;color:#fff;font-family:Arial,sans-serif;display:flex;align-items:center;justify-content:center;padding:20px}
+.panel{width:100%;max-width:420px;background:#1d1c21;border:1px solid #45454b;border-radius:18px;padding:28px}
+h1{font-size:24px;color:#2db88a;text-align:center}
+p{color:#b8b8be;text-align:center;line-height:1.6}
+label{display:block;margin:18px 0 8px;font-size:13px}
+input{width:100%;padding:14px;background:#151419;color:white;border:1px solid #45454b;border-radius:10px;font-size:15px}
+button{width:100%;margin-top:24px;padding:14px;border:0;border-radius:10px;background:#2db88a;color:#101714;font-size:15px;font-weight:bold;cursor:pointer}
+</style>
+</head>
+<body>
+<div class="panel">
+<h1>ANKA TV+</h1>
+<p>İlk Yönetici Hesabı Oluşturma</p>
+<form method="POST" action="/admin/setup">
+<label>Kurulum Anahtarı</label>
+<input type="password" name="setup_key" required autocomplete="off">
+<label>Yönetici Kullanıcı Adı</label>
+<input name="username" minlength="3" maxlength="50" required autocomplete="username">
+<label>Yönetici Şifresi</label>
+<input type="password" name="password" minlength="12" required autocomplete="new-password">
+<button type="submit">Yönetici Hesabını Oluştur</button>
+</form>
+</div>
+</body>
+</html>`;
+}
+
+async function handleAdminSetup(request, env) {
+    if (!env.ADMIN_SETUP_KEY) {
+        return jsonResponse({
+            success: false,
+            error: "Kurulum devre dışı."
+        }, 403);
+    }
+
+    const existing = await env.DB.prepare(
+        "SELECT id FROM admin_users LIMIT 1"
+    ).first();
+
+    if (existing) {
+        return jsonResponse({
+            success: false,
+            error: "Yönetici hesabı zaten oluşturulmuş."
+        }, 403);
+    }
+
+    if (request.method === "GET") {
+        return htmlResponse(setupPage());
+    }
+
+    if (request.method !== "POST") {
+        return jsonResponse({
+            success: false,
+            error: "Method not allowed"
+        }, 405);
+    }
+
+    const origin = request.headers.get("Origin");
+    const expectedOrigin = new URL(request.url).origin;
+
+    if (origin !== expectedOrigin) {
+        return jsonResponse({
+            success: false,
+            error: "Geçersiz istek kaynağı."
+        }, 403);
+    }
+
+    const contentType =
+        request.headers.get("Content-Type") || "";
+
+    if (!contentType.toLowerCase().startsWith(
+        "application/x-www-form-urlencoded"
+    )) {
+        return jsonResponse({
+            success: false,
+            error: "Geçersiz içerik türü."
+        }, 415);
+    }
+
+    const form = await request.formData();
+
+    const setupKey = String(
+        form.get("setup_key") || ""
+    );
+
+    const username = String(
+        form.get("username") || ""
+    ).trim();
+
+    const password = String(
+        form.get("password") || ""
+    );
+
+    if (!constantTimeEqual(
+        await sha256(setupKey),
+        await sha256(env.ADMIN_SETUP_KEY)
+    )) {
+        return jsonResponse({
+            success: false,
+            error: "Kurulum anahtarı hatalı."
+        }, 403);
+    }
+
+    if (!/^[a-zA-Z0-9_]{3,50}$/.test(username)) {
+        return jsonResponse({
+            success: false,
+            error: "Kullanıcı adı 3-50 karakter olmalı; harf, rakam ve alt çizgi içermelidir."
+        }, 400);
+    }
+
+    if (password.length < 12 || password.length > 128) {
+        return jsonResponse({
+            success: false,
+            error: "Şifre 12-128 karakter arasında olmalıdır."
+        }, 400);
+    }
+
+    const salt = randomToken();
+
+    const hash = await passwordHash(
+        password,
+        salt
+    );
+
+    const result = await env.DB.prepare(`
+        INSERT INTO admin_users
+        (username, password_hash, salt, active)
+        SELECT ?, ?, ?, 1
+        WHERE NOT EXISTS (
+            SELECT 1 FROM admin_users
+        )
+    `).bind(username, hash, salt).run();
+
+    if (result.meta.changes !== 1) {
+        return jsonResponse({
+            success: false,
+            error: "Yönetici hesabı zaten mevcut."
+        }, 409);
+    }
+
+    return new Response(null, {
+        status: 303,
+        headers: {
+            "Location": "/admin",
+            "Cache-Control": "no-store"
+        }
+    });
+}
+
+
+
 export default {
     async fetch(request, env) {
         const url = new URL(request.url);
         const path = url.pathname;
+
+        if (path === "/admin/setup") {
+    return await handleAdminSetup(request, env);
+        }
 
         try {
             if (path === "/") {
