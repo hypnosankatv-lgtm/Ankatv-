@@ -154,6 +154,20 @@ function expiredSessionCookie() {
 }
 
 function validFormOrigin(request) {
+
+    console.log("FORM_ORIGIN_DEBUG", JSON.stringify({
+    origin: request.headers.get("Origin"),
+    refererOrigin: (() => {
+        try {
+            const referer = request.headers.get("Referer");
+            return referer ? new URL(referer).origin : null;
+        } catch (_) {
+            return "invalid";
+        }
+    })(),
+    expectedOrigin: new URL(request.url).origin,
+    fetchSite: request.headers.get("Sec-Fetch-Site")
+}));
     const origin = request.headers.get("Origin");
     const expected = new URL(request.url).origin;
 
