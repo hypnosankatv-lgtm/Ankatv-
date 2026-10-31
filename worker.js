@@ -156,17 +156,33 @@ function expiredSessionCookie() {
  
     
 
+ 
 function validFormOrigin(request) {
-    const expectedOrigin = new URL(request.url).origin;
+    const url = new URL(request.url);
+    const expectedOrigin = url.origin;
+
     const origin = request.headers.get("Origin");
     const referer = request.headers.get("Referer");
     const fetchSite = request.headers.get("Sec-Fetch-Site");
 
-    if (origin) {
+    console.log("FORM_ORIGIN_DEBUG", JSON.stringify({
+        expectedOrigin,
+        origin,
+        refererOrigin: (() => {
+            try {
+                return referer ? new URL(referer).origin : null;
+            } catch (_) {
+                return "invalid";
+            }
+        })(),
+        fetchSite
+    }));
+
+    if (origin !== null) {
         return origin === expectedOrigin;
     }
 
-    if (referer) {
+    if (referer !== null) {
         try {
             return new URL(referer).origin === expectedOrigin;
         } catch (_) {
@@ -174,13 +190,8 @@ function validFormOrigin(request) {
         }
     }
 
-    if (fetchSite === "same-origin") {
-        return true;
-    }
-
-    return false;
+    return fetchSite === "same-origin";
 }
-
 
 
 
