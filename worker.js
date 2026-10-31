@@ -1,3 +1,6 @@
+
+import { handleAnkaManage } from "./anka_admin_module.js";
+
 const APP_NAME = "ANKA TV+";
 const VERSION = "1.2.2";
 const SESSION_SECONDS = 60 * 60 * 12;
@@ -974,6 +977,18 @@ export default {
                     errors: result.errors
                 }, healthy ? 200 : 503);
             }
+            
+if (
+    path === "/admin/manage" ||
+    path === "/admin/manage/api"
+) {
+    return await handleAnkaManage(
+        request,
+        env,
+        getAdmin
+    );
+}
+            
 
             if (path === "/admin/setup") {
                 return await handleAdminSetup(
