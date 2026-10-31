@@ -153,40 +153,37 @@ function expiredSessionCookie() {
     );
 }
 
-function validFormOrigin(request) {
+ 
+    
 
-    console.log("FORM_ORIGIN_DEBUG", JSON.stringify({
-    origin: request.headers.get("Origin"),
-    refererOrigin: (() => {
-        try {
-            const referer = request.headers.get("Referer");
-            return referer ? new URL(referer).origin : null;
-        } catch (_) {
-            return "invalid";
-        }
-    })(),
-    expectedOrigin: new URL(request.url).origin,
-    fetchSite: request.headers.get("Sec-Fetch-Site")
-}));
+function validFormOrigin(request) {
+    const expectedOrigin = new URL(request.url).origin;
     const origin = request.headers.get("Origin");
-    const expected = new URL(request.url).origin;
+    const referer = request.headers.get("Referer");
+    const fetchSite = request.headers.get("Sec-Fetch-Site");
 
     if (origin) {
-        return origin === expected;
+        return origin === expectedOrigin;
     }
 
-    const referer = request.headers.get("Referer");
-
-    if (!referer) {
-        return false;
+    if (referer) {
+        try {
+            return new URL(referer).origin === expectedOrigin;
+        } catch (_) {
+            return false;
+        }
     }
 
-    try {
-        return new URL(referer).origin === expected;
-    } catch (_) {
-        return false;
+    if (fetchSite === "same-origin") {
+        return true;
     }
+
+    return false;
 }
+
+
+
+
 
 async function readForm(request) {
     const contentType =
