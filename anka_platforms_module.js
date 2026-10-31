@@ -1,4 +1,6 @@
-function respond(data, status = 200) {
+import { getAnkaAppSession } from "./anka_auth_module.js";
+
+function json(data, status = 200) {
     return new Response(JSON.stringify(data), {
         status,
         headers: {
@@ -9,61 +11,25 @@ function respond(data, status = 200) {
     });
 }
 
-async function sha256(value) {
-    const bytes = new TextEncoder().encode(value);
-    const hash = await crypto.subtle.digest("SHA-256", bytes);
-
-    return Array.from(new Uint8Array(hash))
-        .map(byte => byte.toString(16).padStart(2, "0"))
-        .join("");
-}
-
-async function getAppUser(request, env) {
-    const authorization =
-        request.headers.get("Authorization") || "";
-
-    const match = /^Bearer ([a-f0-9]{64})$/i.exec(
-        authorization.trim()
-    );
-
-    if (!match) {
-        return null;
-    }
-
-    const tokenHash = await sha256(match[1].toLowerCase());
-    const now = Math.floor(Date.now() / 1000);
-
-    return await env.DB.prepare(`
-        SELECT u.id, u.username, u.email, u.status
-        FROM app_sessions s
-        JOIN app_users u ON u.id = s.user_id
-        WHERE s.token_hash = ?
-          AND s.expires_at > ?
-          AND s.revoked_at IS NULL
-          AND u.status = 'approved'
-        LIMIT 1
-    `).bind(tokenHash, now).first();
-}
-
 export async function handleAnkaPlatforms(request, env) {
     if (request.method !== "GET") {
-        return respond({
+        return json({
             success: false,
             error: "GET gerekli."
         }, 405);
     }
 
     if (!env.DB) {
-        return respond({
+        return json({
             success: false,
             error: "D1 bağlantısı bulunamadı."
         }, 503);
     }
 
-    const user = await getAppUser(request, env);
+    const session = await getAnkaAppSession(request, env);
 
-    if (!user) {
-        return respond({
+    if (!session) {
+        return json({
             success: false,
             error: "Oturum geçersiz veya süresi dolmuş."
         }, 401);
@@ -88,15 +54,15 @@ export async function handleAnkaPlatforms(request, env) {
 
         platforms.push({
             id: platform.id,
-            title: platform.title,
+            title: platform.title || "",
             logo: platform.logo || "",
             list_url: platform.list_url || "",
             js_url: platform.js_url || ""
         });
     }
 
-    return respond({
+    return json({
         success: true,
-        platforms: platforms
+        platforms
     });
 }
