@@ -1,10 +1,29 @@
 {
-    "$schema": "node_modules/wrangler/config-schema.json",
-    "name": "anka-dizi-api",
-    "main": "worker.js",
-    "compatibility_date": "2026-10-30",
-    "workers_dev": true,
-    "observability": {
-        "enabled": true
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "anka-dizi-api",
+  "main": "worker.js",
+  "compatibility_date": "2026-10-30",
+  "workers_dev": true,
+  "observability": {
+    "enabled": true
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "anka-tv-db",
+      "database_id": "c8214387-6f20-40b8-b12c-7d62d2d8d626"
     }
+  ],
+  "kv_namespaces": [
+    {
+      "binding": "CONFIG",
+      "id": "da9cdf86864d4741948e011eadf649a9"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "STORAGE",
+      "bucket_name": "anka-tv-files"
+    }
+  ]
 }
