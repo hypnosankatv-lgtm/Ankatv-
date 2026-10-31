@@ -312,6 +312,7 @@ document.querySelectorAll('[data-type]').forEach(button=>button.onclick=()=>{
 });
 const PLACEHOLDER={overview:['Genel Bakış','Sistem özeti ve istatistikler sonraki aşamada D1 verilerine bağlanacak.'],users:['Kullanıcı Yönetimi','Kullanıcı listesi, hesap onayı ve yetkiler henüz bu modüle taşınmadı.'],passwords:['Şifre Sıfırlama','Şifre sıfırlama talepleri henüz bu modüle taşınmadı.'],notifications:['Anlık Bildirim','Bildirim gönderme servisi henüz yapılandırılmadı.']};
 document.querySelectorAll('[data-page]').forEach(button=>button.onclick=()=>{
+ if(button.dataset.page==='users'){window.location.assign('/admin/users');return;}
  currentPage=button.dataset.page;closeMenu();closeForm();$('search').value='';
  $('new').hidden=true;$('search').hidden=true;$('count').textContent='';notice('');
  $('heading').textContent=PLACEHOLDER[currentPage][0];
