@@ -72,7 +72,7 @@ async function usersDeviceHash(request) {
     ).trim().toLowerCase();
 
     const uuidPattern =
-        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
     const legacyPattern = /^[0-9a-f]{16}$/;
 
@@ -83,7 +83,7 @@ async function usersDeviceHash(request) {
         return null;
     }
 
-    return await usersSha256(
+    return usersSha256(
         "anka-device-v1:" + deviceId
     );
 }
@@ -406,7 +406,6 @@ main {
     <div class="brand">ANKA TV+</div>
     <a class="back" href="/admin/manage">Ana Panele Dön</a>
 </header>
-
 <main>
     <div class="heading">
         <h1>Kullanıcı Yönetimi</h1>
@@ -414,11 +413,9 @@ main {
             Yenile
         </button>
     </div>
-
     <p class="summary" id="summary">
         Kullanıcılar yükleniyor...
     </p>
-
     <input
         id="search"
         class="search"
@@ -426,7 +423,6 @@ main {
         placeholder="Kullanıcı adı veya e-posta ara..."
         autocomplete="off"
     >
-
     <div class="filters">
         <button class="selected" data-filter="pending">
             Onay Bekleyen
@@ -444,12 +440,9 @@ main {
             Tümü
         </button>
     </div>
-
     <p id="notice" class="notice" role="status"></p>
-
     <section id="cards" class="cards"></section>
 </main>
-
 <script>
 let currentFilter = "pending";
 let users = [];
@@ -476,7 +469,6 @@ function statusLabel(status) {
         rejected: "Reddedildi",
         disabled: "Pasif"
     };
-
     return labels[status] || status;
 }
 
@@ -554,8 +546,7 @@ function render() {
     });
 
     byId("summary").textContent =
-        filtered.length +
-        " kullanıcı gösteriliyor";
+        filtered.length + " kullanıcı gösteriliyor";
 
     if (!filtered.length) {
         byId("cards").innerHTML =
@@ -603,6 +594,12 @@ function render() {
                 '" data-reset="1">' +
                 'Cihazı Sıfırla</button>';
         }
+
+        buttons +=
+            '<button class="danger" data-id="' +
+            escapeHtml(user.id) +
+            '" data-delete="1">' +
+            'Hesabı Sil</button>';
 
         const createdAt = Number(user.created_at);
 
@@ -654,7 +651,6 @@ async function loadUsers() {
 
         showNotice("");
         render();
-
     } catch (error) {
         users = [];
         render();
@@ -693,13 +689,25 @@ byId("cards").addEventListener("click", async event => {
 
     const id = button.dataset.id;
     const reset = button.dataset.reset === "1";
+    const deleting = button.dataset.delete === "1";
     const status = button.dataset.status;
 
-    const message = reset
-        ? "Cihaz bağlantısı sıfırlansın mı? Mevcut oturumlar da kapatılacak."
-        : "Kullanıcı durumu " +
-          statusLabel(status) +
-          " olarak değiştirilsin mi?";
+    let message;
+
+    if (deleting) {
+        const user = users.find(item => item.id === id);
+        message =
+            (user ? user.username : "Bu kullanıcı") +
+            " hesabı kalıcı olarak silinecek. Bu işlem geri alınamaz. Devam edilsin mi?";
+    } else if (reset) {
+        message =
+            "Cihaz bağlantısı sıfırlansın mı? Mevcut oturumlar kapatılacak.";
+    } else {
+        message =
+            "Kullanıcı durumu " +
+            statusLabel(status) +
+            " olarak değiştirilsin mi?";
+    }
 
     if (!confirm(message)) {
         return;
@@ -708,19 +716,21 @@ byId("cards").addEventListener("click", async event => {
     button.disabled = true;
 
     try {
-        if (reset) {
-            await api("reset-device", {
-                id: id
-            });
+        if (deleting) {
+            await api("delete", { id });
+        } else if (reset) {
+            await api("reset-device", { id });
         } else {
-            await api("status", {
-                id: id,
-                status: status
-            });
+            await api("status", { id, status });
         }
 
         await loadUsers();
 
+        showNotice(
+            deleting
+                ? "Kullanıcı hesabı kalıcı olarak silindi."
+                : "İşlem başarıyla tamamlandı."
+        );
     } catch (error) {
         showNotice(error.message, true);
     } finally {
@@ -835,7 +845,6 @@ async function usersRegister(request, env) {
             message:
                 "Kayıt başarılı. Yönetici onayı bekleniyor."
         }, 201);
-
     } catch (error) {
         const message = String(
             error?.message || error
@@ -965,7 +974,7 @@ async function usersUpdateStatus(request, env, admin) {
     }
 
     const existing = await env.DB.prepare(`
-        SELECT id, status
+        SELECT id
         FROM app_users
         WHERE id = ?
         LIMIT 1
@@ -1083,6 +1092,73 @@ async function usersResetDevice(request, env) {
     });
 }
 
+async function usersDeleteAccount(request, env) {
+    if (request.method !== "POST") {
+        return usersError("POST gerekli.", 405);
+    }
+
+    if (!usersValidAdminPost(request)) {
+        return usersError(
+            "Geçersiz yönetici istek kaynağı.",
+            403
+        );
+    }
+
+    let body;
+
+    try {
+        body = await usersReadJson(request);
+    } catch (error) {
+        return usersError(error.message, 400);
+    }
+
+    const id = String(body.id ?? "");
+
+    if (!usersValidId(id)) {
+        return usersError(
+            "Geçersiz kullanıcı kimliği.",
+            422
+        );
+    }
+
+    const existing = await env.DB.prepare(`
+        SELECT id, username
+        FROM app_users
+        WHERE id = ?
+        LIMIT 1
+    `).bind(id).first();
+
+    if (!existing) {
+        return usersError(
+            "Silinecek kullanıcı bulunamadı.",
+            404
+        );
+    }
+
+    const results = await env.DB.batch([
+        env.DB.prepare(`
+            DELETE FROM app_sessions
+            WHERE user_id = ?
+        `).bind(id),
+        env.DB.prepare(`
+            DELETE FROM app_users
+            WHERE id = ?
+        `).bind(id)
+    ]);
+
+    if (results[1]?.meta?.changes !== 1) {
+        return usersError(
+            "Kullanıcı hesabı silinemedi.",
+            500
+        );
+    }
+
+    return usersJson({
+        success: true,
+        message: "Kullanıcı hesabı kalıcı olarak silindi."
+    });
+}
+
 export async function handleAnkaUsers(
     request,
     env,
@@ -1176,6 +1252,13 @@ export async function handleAnkaUsers(
 
             if (action === "reset-device") {
                 return await usersResetDevice(
+                    request,
+                    env
+                );
+            }
+
+            if (action === "delete") {
+                return await usersDeleteAccount(
                     request,
                     env
                 );
