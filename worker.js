@@ -1010,13 +1010,13 @@ if (
                     env
                 );
 
-                return htmlResponse(
-                    user
-                        ? dashboardPage(
-                            user.username
-                        )
-                        : loginPage()
-                );
+                
+if (!user) {
+    return htmlResponse(loginPage());
+}
+
+return redirect("/admin/manage");
+                
             }
 
             if (path === "/admin/login") {
