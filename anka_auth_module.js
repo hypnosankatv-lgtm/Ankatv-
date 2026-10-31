@@ -203,6 +203,14 @@ async function findSession(request, env) {
     };
 }
 
+export async function getAnkaAppSession(request, env) {
+    if (!env.DB) {
+        return null;
+    }
+
+    return await findSession(request, env);
+}
+
 async function login(request, env) {
     if (request.method !== "POST") {
         return error("POST gerekli.", 405);
