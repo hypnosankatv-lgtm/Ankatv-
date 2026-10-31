@@ -1,68 +1,52 @@
 
-const encoder = new TextEncoder();
-const PBKDF2_ITERATIONS = 100000;
-const MAX_BODY_BYTES = 8192;
+const ANKA_USERS_MAX_BODY = 8192;
+const ANKA_USERS_PBKDF2_ITERATIONS = 100000;
+const ANKA_USERS_ENCODER = new TextEncoder();
 
-function json(data, status = 200) {
+function usersJson(data, status = 200) {
     return new Response(JSON.stringify(data), {
         status,
         headers: {
             "Content-Type": "application/json; charset=utf-8",
             "Cache-Control": "no-store",
-            "X-Content-Type-Options": "nosniff"
+            "X-Content-Type-Options": "nosniff",
+            "Referrer-Policy": "no-referrer"
         }
     });
 }
 
-function error(message, status = 400) {
-    return json({
+function usersError(message, status = 400) {
+    return usersJson({
         success: false,
         error: message
     }, status);
 }
 
-function hex(bytes) {
+function usersHex(bytes) {
     return Array.from(bytes)
         .map(byte => byte.toString(16).padStart(2, "0"))
         .join("");
 }
 
-async function sha256(value) {
+async function usersSha256(value) {
     const digest = await crypto.subtle.digest(
         "SHA-256",
-        encoder.encode(value)
+        ANKA_USERS_ENCODER.encode(String(value))
     );
 
-    return hex(new Uint8Array(digest));
+    return usersHex(new Uint8Array(digest));
 }
 
-async function getDeviceHash(request) {
-    const deviceId = String(
-        request.headers.get("X-Anka-Device-Id") || ""
-    ).trim().toLowerCase();
-
-    const uuid =
-        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
-
-    const legacy = /^[0-9a-f]{16}$/;
-
-    if (!uuid.test(deviceId) && !legacy.test(deviceId)) {
-        return null;
-    }
-
-    return sha256("anka-device-v1:" + deviceId);
-}
-
-function randomSalt() {
+function usersRandomSalt() {
     const bytes = new Uint8Array(24);
     crypto.getRandomValues(bytes);
-    return hex(bytes);
+    return usersHex(bytes);
 }
 
-async function passwordHash(password, salt) {
+async function usersPasswordHash(password, salt) {
     const key = await crypto.subtle.importKey(
         "raw",
-        encoder.encode(password),
+        ANKA_USERS_ENCODER.encode(password),
         "PBKDF2",
         false,
         ["deriveBits"]
@@ -71,19 +55,41 @@ async function passwordHash(password, salt) {
     const bits = await crypto.subtle.deriveBits(
         {
             name: "PBKDF2",
-            salt: encoder.encode(salt),
-            iterations: PBKDF2_ITERATIONS,
+            salt: ANKA_USERS_ENCODER.encode(salt),
+            iterations: ANKA_USERS_PBKDF2_ITERATIONS,
             hash: "SHA-256"
         },
         key,
         256
     );
 
-    return hex(new Uint8Array(bits));
+    return usersHex(new Uint8Array(bits));
 }
 
-async function readBody(request) {
-    const contentType = (
+async function usersDeviceHash(request) {
+    const deviceId = String(
+        request.headers.get("X-Anka-Device-Id") || ""
+    ).trim().toLowerCase();
+
+    const uuidPattern =
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+    const legacyPattern = /^[0-9a-f]{16}$/;
+
+    if (
+        !uuidPattern.test(deviceId) &&
+        !legacyPattern.test(deviceId)
+    ) {
+        return null;
+    }
+
+    return await usersSha256(
+        "anka-device-v1:" + deviceId
+    );
+}
+
+async function usersReadJson(request) {
+    const contentType = String(
         request.headers.get("Content-Type") || ""
     ).toLowerCase();
 
@@ -91,46 +97,52 @@ async function readBody(request) {
         throw new Error("JSON içerik türü gerekli.");
     }
 
-    const contentLength = Number(
+    const length = Number(
         request.headers.get("Content-Length") || 0
     );
 
-    if (contentLength > MAX_BODY_BYTES) {
-        throw new Error("İstek verisi çok büyük.");
+    if (
+        !Number.isFinite(length) ||
+        length > ANKA_USERS_MAX_BODY
+    ) {
+        throw new Error("İstek boyutu geçersiz.");
     }
 
     const raw = await request.text();
 
-    if (encoder.encode(raw).length > MAX_BODY_BYTES) {
+    if (
+        ANKA_USERS_ENCODER.encode(raw).byteLength >
+        ANKA_USERS_MAX_BODY
+    ) {
         throw new Error("İstek verisi çok büyük.");
     }
 
-    let data;
+    let body;
 
     try {
-        data = JSON.parse(raw);
+        body = JSON.parse(raw);
     } catch (_) {
-        throw new Error("Geçersiz JSON.");
+        throw new Error("Geçersiz JSON verisi.");
     }
 
     if (
-        !data ||
-        typeof data !== "object" ||
-        Array.isArray(data)
+        !body ||
+        typeof body !== "object" ||
+        Array.isArray(body)
     ) {
         throw new Error("JSON nesnesi gerekli.");
     }
 
-    return data;
+    return body;
 }
 
-function verifyAdminRequest(request) {
+function usersValidAdminPost(request) {
     if (request.headers.get("X-Anka-Admin") !== "1") {
         return false;
     }
 
-    const origin = new URL(request.url).origin;
-    const requestOrigin = request.headers.get("Origin");
+    const expectedOrigin = new URL(request.url).origin;
+    const origin = request.headers.get("Origin");
     const referer = request.headers.get("Referer");
     const fetchSite = request.headers.get("Sec-Fetch-Site");
 
@@ -138,13 +150,15 @@ function verifyAdminRequest(request) {
         return false;
     }
 
-    if (requestOrigin && requestOrigin !== origin) {
+    if (origin && origin !== expectedOrigin) {
         return false;
     }
 
     if (referer) {
         try {
-            if (new URL(referer).origin !== origin) {
+            if (
+                new URL(referer).origin !== expectedOrigin
+            ) {
                 return false;
             }
         } catch (_) {
@@ -153,7 +167,7 @@ function verifyAdminRequest(request) {
     }
 
     if (
-        !requestOrigin &&
+        !origin &&
         !referer &&
         fetchSite !== "same-origin"
     ) {
@@ -163,7 +177,13 @@ function verifyAdminRequest(request) {
     return true;
 }
 
-function htmlPage() {
+function usersValidId(id) {
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+        String(id || "")
+    );
+}
+
+function usersPage() {
     return `<!DOCTYPE html>
 <html lang="tr">
 <head>
@@ -171,222 +191,329 @@ function htmlPage() {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>ANKA TV+ - Kullanıcı Yönetimi</title>
 <style>
+:root {
+    color-scheme: dark;
+    --background: #151419;
+    --surface: #1d1c21;
+    --primary: #2db88a;
+    --border: #45454b;
+    --secondary: #b8b8be;
+}
 * {
     box-sizing: border-box;
 }
 body {
     margin: 0;
-    background: #151419;
+    min-height: 100vh;
+    background: var(--background);
     color: #fff;
     font-family: Arial, sans-serif;
     font-size: 14px;
 }
-header {
-    padding: 20px;
-    background: #1d1c21;
-    border-bottom: 1px solid #45454b;
+button, input {
+    font: inherit;
+}
+button {
+    cursor: pointer;
+    border: 0;
+    border-radius: 10px;
+    padding: 11px 15px;
+    background: var(--primary);
+    color: #102119;
+    font-weight: 700;
+    min-height: 40px;
+}
+button:disabled {
+    opacity: .5;
+    cursor: not-allowed;
+}
+.topbar {
     display: flex;
-    align-items: center;
     justify-content: space-between;
+    align-items: center;
     gap: 12px;
+    min-height: 68px;
+    padding: 15px 22px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
 }
-header h1 {
-    margin: 0;
-    color: #2db88a;
-    font-size: 20px;
+.brand {
+    font-size: 21px;
+    color: var(--primary);
+    font-weight: 800;
 }
-header a {
-    color: #2db88a;
+.back {
+    color: var(--primary);
     text-decoration: none;
+    font-weight: 700;
+    white-space: nowrap;
 }
 main {
     max-width: 1150px;
     margin: auto;
-    padding: 20px;
+    padding: 25px 20px;
 }
-input {
+.heading {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-bottom: 18px;
+}
+.heading h1 {
+    margin: 0;
+    font-size: 23px;
+}
+.refresh {
+    background: #303038;
+    color: #fff;
+}
+.summary {
+    color: var(--secondary);
+    margin: 0 0 20px;
+}
+.search {
+    display: block;
     width: 100%;
-    padding: 15px;
-    background: #1d1c21;
-    border: 1px solid #45454b;
+    padding: 14px;
+    background: var(--surface);
+    border: 1px solid var(--border);
     border-radius: 12px;
-    color: white;
-    font-size: 15px;
+    color: #fff;
     outline: none;
+    font-size: 15px;
 }
-input:focus {
-    border-color: #2db88a;
+.search:focus {
+    border-color: var(--primary);
 }
 .filters {
     display: flex;
-    gap: 10px;
+    gap: 9px;
     overflow-x: auto;
-    margin: 20px 0;
-}
-button {
-    padding: 11px 15px;
-    border: 0;
-    border-radius: 10px;
-    background: #2db88a;
-    color: #10251c;
-    font-weight: bold;
-    cursor: pointer;
-}
-button.secondary {
-    background: #303038;
-    color: white;
-}
-button.danger {
-    background: #68333c;
-    color: white;
-}
-button:disabled {
-    opacity: .5;
+    padding: 20px 0;
 }
 .filters button {
     white-space: nowrap;
+    background: #303038;
+    color: #fff;
 }
-#notice {
-    color: #ff9d9d;
+.filters button.selected {
+    background: var(--primary);
+    color: #102119;
+}
+.notice {
     min-height: 20px;
+    color: #a5ebc9;
+    margin: 0 0 15px;
+    overflow-wrap: anywhere;
 }
-#count {
-    color: #b8b8be;
+.notice.error {
+    color: #ff9999;
 }
 .cards {
     display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 15px;
 }
 .card {
+    min-width: 0;
     padding: 20px;
-    border-radius: 14px;
-    background: #1d1c21;
-    border: 1px solid #45454b;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 15px;
     overflow-wrap: anywhere;
 }
 .card h3 {
     margin: 0 0 12px;
     font-size: 18px;
 }
-.details {
-    color: #b8b8be;
+.detail {
+    color: var(--secondary);
     line-height: 1.9;
+    font-size: 13px;
 }
 .status {
     display: inline-block;
-    padding: 5px 12px;
-    background: #34343a;
+    padding: 4px 11px;
     border-radius: 20px;
-    color: white;
+    background: #34343a;
+    color: #fff;
     font-size: 12px;
+}
+.status.approved {
+    background: #203d31;
+    color: #9df2c8;
+}
+.status.pending {
+    background: #504126;
+    color: #ffe0a0;
+}
+.status.rejected,
+.status.disabled {
+    background: #503036;
+    color: #ffb6c1;
 }
 .actions {
     display: flex;
     flex-wrap: wrap;
     gap: 8px;
-    margin-top: 16px;
+    margin-top: 17px;
+}
+.actions button {
+    font-size: 12px;
+    padding: 9px 12px;
+    min-height: 38px;
+}
+.secondary {
+    background: #33323a;
+    color: #fff;
+}
+.danger {
+    background: #62343c;
+    color: #fff;
 }
 .empty {
+    grid-column: 1 / -1;
+    padding: 40px 20px;
     text-align: center;
-    color: #b8b8be;
-    padding: 40px 15px;
-    border: 1px dashed #45454b;
-    border-radius: 14px;
+    color: var(--secondary);
+    background: var(--surface);
+    border: 1px dashed var(--border);
+    border-radius: 15px;
 }
-@media(min-width:750px) {
+@media(max-width:750px) {
     .cards {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
+        grid-template-columns: 1fr;
     }
-}
-@media(max-width:500px) {
-    header {
+    .topbar {
         padding: 15px;
     }
-    header h1 {
-        font-size: 16px;
+    .brand {
+        font-size: 17px;
     }
     main {
-        padding: 15px;
+        padding: 20px 14px;
+    }
+    .heading h1 {
+        font-size: 20px;
     }
 }
 </style>
 </head>
 <body>
-<header>
-    <h1>ANKA TV+ Kullanıcı Yönetimi</h1>
-    <a href="/admin">Ana Panele Dön</a>
+<header class="topbar">
+    <div class="brand">ANKA TV+</div>
+    <a class="back" href="/admin/manage">Ana Panele Dön</a>
 </header>
+
 <main>
-    <p id="count">Kullanıcılar yükleniyor...</p>
+    <div class="heading">
+        <h1>Kullanıcı Yönetimi</h1>
+        <button class="refresh" id="refresh" type="button">
+            Yenile
+        </button>
+    </div>
+
+    <p class="summary" id="summary">
+        Kullanıcılar yükleniyor...
+    </p>
 
     <input
-        type="search"
         id="search"
-        placeholder="Kullanıcı adı veya e-posta ara"
+        class="search"
+        type="search"
+        placeholder="Kullanıcı adı veya e-posta ara..."
         autocomplete="off"
     >
 
     <div class="filters">
-        <button data-filter="pending">Onay Bekleyen</button>
-        <button class="secondary" data-filter="approved">Onaylanan</button>
-        <button class="secondary" data-filter="rejected">Reddedilen</button>
-        <button class="secondary" data-filter="disabled">Pasif</button>
-        <button class="secondary" data-filter="all">Tümü</button>
+        <button class="selected" data-filter="pending">
+            Onay Bekleyen
+        </button>
+        <button data-filter="approved">
+            Onaylanan
+        </button>
+        <button data-filter="rejected">
+            Reddedilen
+        </button>
+        <button data-filter="disabled">
+            Pasif
+        </button>
+        <button data-filter="all">
+            Tümü
+        </button>
     </div>
 
-    <p id="notice" role="status"></p>
-    <div id="cards" class="cards"></div>
+    <p id="notice" class="notice" role="status"></p>
+
+    <section id="cards" class="cards"></section>
 </main>
 
 <script>
-let filter = "pending";
+let currentFilter = "pending";
 let users = [];
 
-const el = id => document.getElementById(id);
+const byId = id => document.getElementById(id);
 
 function escapeHtml(value) {
     return String(value ?? "").replace(
         /[&<>"']/g,
-        c => ({
+        character => ({
             "&": "&amp;",
             "<": "&lt;",
             ">": "&gt;",
             '"': "&quot;",
             "'": "&#39;"
-        })[c]
+        })[character]
     );
 }
 
-function statusText(status) {
-    return ({
+function statusLabel(status) {
+    const labels = {
         pending: "Onay Bekliyor",
         approved: "Onaylandı",
         rejected: "Reddedildi",
         disabled: "Pasif"
-    })[status] || status;
+    };
+
+    return labels[status] || status;
+}
+
+function showNotice(message, isError = false) {
+    const element = byId("notice");
+    element.textContent = message;
+    element.classList.toggle("error", isError);
 }
 
 async function api(action, body) {
     const isPost = body !== undefined;
 
-    const url = "/admin/users/api?action=" +
-        encodeURIComponent(action) +
-        (isPost
-            ? ""
-            : "&status=" + encodeURIComponent(filter));
-
-    const response = await fetch(url, {
-        method: isPost ? "POST" : "GET",
-        credentials: "same-origin",
-        cache: "no-store",
-        headers: isPost
-            ? {
-                "Content-Type": "application/json",
-                "X-Anka-Admin": "1"
-            }
-            : {},
-        body: isPost ? JSON.stringify(body) : undefined
+    const params = new URLSearchParams({
+        action: action
     });
+
+    if (!isPost) {
+        params.set("status", currentFilter);
+    }
+
+    const response = await fetch(
+        "/admin/users/api?" + params.toString(),
+        {
+            method: isPost ? "POST" : "GET",
+            credentials: "same-origin",
+            cache: "no-store",
+            headers: isPost
+                ? {
+                    "Content-Type": "application/json",
+                    "X-Anka-Admin": "1"
+                }
+                : {},
+            body: isPost
+                ? JSON.stringify(body)
+                : undefined
+        }
+    );
 
     let result;
 
@@ -394,13 +521,16 @@ async function api(action, body) {
         result = await response.json();
     } catch (_) {
         throw new Error(
-            "Sunucudan geçerli JSON yanıtı alınamadı."
+            "API geçerli JSON döndürmedi. HTTP " +
+            response.status
         );
     }
 
     if (!response.ok || !result.success) {
         throw new Error(
-            result.error || "İşlem başarısız."
+            result.error ||
+            "İşlem başarısız. HTTP " +
+            response.status
         );
     }
 
@@ -408,28 +538,32 @@ async function api(action, body) {
 }
 
 function render() {
-    const search = el("search")
+    const query = byId("search")
         .value
+        .trim()
         .toLocaleLowerCase("tr-TR");
 
     const filtered = users.filter(user => {
         const value = (
-            user.username + " " + user.email
+            String(user.username || "") +
+            " " +
+            String(user.email || "")
         ).toLocaleLowerCase("tr-TR");
 
-        return value.includes(search);
+        return value.includes(query);
     });
 
-    el("count").textContent =
-        filtered.length + " kullanıcı gösteriliyor";
+    byId("summary").textContent =
+        filtered.length +
+        " kullanıcı gösteriliyor";
 
     if (!filtered.length) {
-        el("cards").innerHTML =
+        byId("cards").innerHTML =
             '<div class="empty">Kullanıcı bulunamadı.</div>';
         return;
     }
 
-    el("cards").innerHTML = filtered.map(user => {
+    byId("cards").innerHTML = filtered.map(user => {
         let buttons = "";
 
         for (const status of [
@@ -462,32 +596,41 @@ function render() {
                 '</button>';
         }
 
-        if (user.device_bound) {
+        if (Number(user.device_bound) === 1) {
             buttons +=
                 '<button class="secondary" data-id="' +
                 escapeHtml(user.id) +
-                '" data-reset="1">Cihazı Sıfırla</button>';
+                '" data-reset="1">' +
+                'Cihazı Sıfırla</button>';
         }
 
-        const created = Number(user.created_at);
+        const createdAt = Number(user.created_at);
 
-        const createdText = Number.isFinite(created)
-            ? new Date(created * 1000)
-                .toLocaleString("tr-TR")
-            : "-";
+        const createdText =
+            Number.isFinite(createdAt) &&
+            createdAt > 0
+                ? new Date(createdAt * 1000)
+                    .toLocaleString("tr-TR")
+                : "-";
 
         return '<article class="card">' +
-            '<h3>' + escapeHtml(user.username) + '</h3>' +
-            '<div class="details">' +
-            'E-posta: ' + escapeHtml(user.email) +
-            '<div>Durum: <span class="status">' +
-            escapeHtml(statusText(user.status)) +
+            '<h3>' +
+            escapeHtml(user.username) +
+            '</h3>' +
+            '<div class="detail">' +
+            '<div>E-posta: ' +
+            escapeHtml(user.email) +
+            '</div>' +
+            '<div>Durum: <span class="status ' +
+            escapeHtml(user.status) +
+            '">' +
+            escapeHtml(statusLabel(user.status)) +
             '</span></div>' +
             '<div>Kayıt: ' +
             escapeHtml(createdText) +
             '</div>' +
             '<div>Cihaz: ' +
-            (user.device_bound
+            (Number(user.device_bound) === 1
                 ? "Bağlı"
                 : "Bağlı değil") +
             '</div>' +
@@ -500,7 +643,7 @@ function render() {
 }
 
 async function loadUsers() {
-    el("notice").textContent = "";
+    showNotice("Kullanıcılar yükleniyor...");
 
     try {
         const result = await api("list");
@@ -509,32 +652,37 @@ async function loadUsers() {
             ? result.items
             : [];
 
+        showNotice("");
         render();
-    } catch (e) {
-        el("notice").textContent = e.message;
+
+    } catch (error) {
+        users = [];
+        render();
+        showNotice(error.message, true);
     }
 }
 
 document.querySelectorAll("[data-filter]")
     .forEach(button => {
         button.addEventListener("click", () => {
-            filter = button.dataset.filter;
+            currentFilter = button.dataset.filter;
 
             document.querySelectorAll("[data-filter]")
                 .forEach(item => {
-                    item.className =
+                    item.classList.toggle(
+                        "selected",
                         item === button
-                            ? ""
-                            : "secondary";
+                    );
                 });
 
             loadUsers();
         });
     });
 
-el("search").addEventListener("input", render);
+byId("search").addEventListener("input", render);
+byId("refresh").addEventListener("click", loadUsers);
 
-el("cards").addEventListener("click", async event => {
+byId("cards").addEventListener("click", async event => {
     const button = event.target.closest(
         "button[data-id]"
     );
@@ -548,9 +696,9 @@ el("cards").addEventListener("click", async event => {
     const status = button.dataset.status;
 
     const message = reset
-        ? "Cihaz bağlantısı sıfırlansın mı? Mevcut oturumlar kapatılacak."
+        ? "Cihaz bağlantısı sıfırlansın mı? Mevcut oturumlar da kapatılacak."
         : "Kullanıcı durumu " +
-          statusText(status) +
+          statusLabel(status) +
           " olarak değiştirilsin mi?";
 
     if (!confirm(message)) {
@@ -561,14 +709,20 @@ el("cards").addEventListener("click", async event => {
 
     try {
         if (reset) {
-            await api("reset-device", { id });
+            await api("reset-device", {
+                id: id
+            });
         } else {
-            await api("status", { id, status });
+            await api("status", {
+                id: id,
+                status: status
+            });
         }
 
         await loadUsers();
-    } catch (e) {
-        el("notice").textContent = e.message;
+
+    } catch (error) {
+        showNotice(error.message, true);
     } finally {
         button.disabled = false;
     }
@@ -580,23 +734,23 @@ loadUsers();
 </html>`;
 }
 
-async function registerUser(request, env) {
+async function usersRegister(request, env) {
     if (request.method !== "POST") {
-        return error("POST gerekli.", 405);
+        return usersError("POST gerekli.", 405);
     }
 
     let body;
 
     try {
-        body = await readBody(request);
-    } catch (e) {
-        return error(e.message, 400);
+        body = await usersReadJson(request);
+    } catch (error) {
+        return usersError(error.message, 400);
     }
 
-    const device = await getDeviceHash(request);
+    const deviceHash = await usersDeviceHash(request);
 
-    if (!device) {
-        return error(
+    if (!deviceHash) {
+        return usersError(
             "Geçerli cihaz kimliği gerekli.",
             422
         );
@@ -615,7 +769,7 @@ async function registerUser(request, env) {
     );
 
     if (!/^[a-zA-Z0-9_]{3,40}$/.test(username)) {
-        return error(
+        return usersError(
             "Kullanıcı adı 3-40 karakter olmalıdır.",
             422
         );
@@ -625,7 +779,7 @@ async function registerUser(request, env) {
         email.length > 254 ||
         !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
     ) {
-        return error(
+        return usersError(
             "Geçerli e-posta adresi giriniz.",
             422
         );
@@ -635,14 +789,18 @@ async function registerUser(request, env) {
         password.length < 12 ||
         password.length > 128
     ) {
-        return error(
+        return usersError(
             "Şifre 12-128 karakter olmalıdır.",
             422
         );
     }
 
-    const salt = randomSalt();
-    const hash = await passwordHash(password, salt);
+    const salt = usersRandomSalt();
+    const passwordHash = await usersPasswordHash(
+        password,
+        salt
+    );
+
     const now = Math.floor(Date.now() / 1000);
 
     try {
@@ -663,28 +821,28 @@ async function registerUser(request, env) {
             crypto.randomUUID(),
             username,
             email,
-            hash,
+            passwordHash,
             salt,
             "pending",
             now,
-            device,
+            deviceHash,
             now
         ).run();
 
-        return json({
+        return usersJson({
             success: true,
             status: "pending",
             message:
                 "Kayıt başarılı. Yönetici onayı bekleniyor."
         }, 201);
 
-    } catch (e) {
+    } catch (error) {
         const message = String(
-            e?.message || e
+            error?.message || error
         );
 
         console.error(
-            "ANKA_REGISTER_ERROR",
+            "ANKA_USERS_REGISTER_ERROR",
             message
         );
 
@@ -692,29 +850,29 @@ async function registerUser(request, env) {
             /UNIQUE constraint failed.*device_hash/i.test(message) ||
             /idx_app_users_device_hash/i.test(message)
         ) {
-            return error(
-                "Bu cihazda zaten bir hesap bulunmaktadır.",
+            return usersError(
+                "Bu cihazda zaten bir hesap oluşturulmuş.",
                 409
             );
         }
 
         if (/UNIQUE constraint failed/i.test(message)) {
-            return error(
+            return usersError(
                 "Kullanıcı adı veya e-posta zaten kayıtlı.",
                 409
             );
         }
 
-        return error(
+        return usersError(
             "Kayıt sırasında veritabanı hatası oluştu.",
             500
         );
     }
 }
 
-async function listUsers(request, env) {
+async function usersList(request, env) {
     if (request.method !== "GET") {
-        return error("GET gerekli.", 405);
+        return usersError("GET gerekli.", 405);
     }
 
     const status = new URL(request.url)
@@ -729,8 +887,8 @@ async function listUsers(request, env) {
     ];
 
     if (!allowed.includes(status)) {
-        return error(
-            "Geçersiz filtre.",
+        return usersError(
+            "Geçersiz kullanıcı filtresi.",
             400
         );
     }
@@ -763,20 +921,20 @@ async function listUsers(request, env) {
             : statement.bind(status)
     ).all();
 
-    return json({
+    return usersJson({
         success: true,
         items: result.results || []
     });
 }
 
-async function updateStatus(request, env, admin) {
+async function usersUpdateStatus(request, env, admin) {
     if (request.method !== "POST") {
-        return error("POST gerekli.", 405);
+        return usersError("POST gerekli.", 405);
     }
 
-    if (!verifyAdminRequest(request)) {
-        return error(
-            "Yetkisiz yönetici isteği.",
+    if (!usersValidAdminPost(request)) {
+        return usersError(
+            "Geçersiz yönetici istek kaynağı.",
             403
         );
     }
@@ -784,31 +942,45 @@ async function updateStatus(request, env, admin) {
     let body;
 
     try {
-        body = await readBody(request);
-    } catch (e) {
-        return error(e.message, 400);
+        body = await usersReadJson(request);
+    } catch (error) {
+        return usersError(error.message, 400);
     }
 
     const id = String(body.id ?? "");
     const status = String(body.status ?? "");
 
     if (
-        !/^[0-9a-f-]{36}$/i.test(id) ||
+        !usersValidId(id) ||
         ![
             "approved",
             "rejected",
             "disabled"
         ].includes(status)
     ) {
-        return error(
+        return usersError(
             "Geçersiz kullanıcı işlemi.",
             422
         );
     }
 
+    const existing = await env.DB.prepare(`
+        SELECT id, status
+        FROM app_users
+        WHERE id = ?
+        LIMIT 1
+    `).bind(id).first();
+
+    if (!existing) {
+        return usersError(
+            "Kullanıcı bulunamadı.",
+            404
+        );
+    }
+
     const now = Math.floor(Date.now() / 1000);
 
-    const result = await env.DB.batch([
+    await env.DB.batch([
         env.DB.prepare(`
             UPDATE app_users
             SET
@@ -836,27 +1008,20 @@ async function updateStatus(request, env, admin) {
         )
     ]);
 
-    if (!result[0]?.meta?.changes) {
-        return error(
-            "Kullanıcı bulunamadı.",
-            404
-        );
-    }
-
-    return json({
+    return usersJson({
         success: true,
-        message: "Kullanıcı güncellendi."
+        message: "Kullanıcı durumu güncellendi."
     });
 }
 
-async function resetDevice(request, env) {
+async function usersResetDevice(request, env) {
     if (request.method !== "POST") {
-        return error("POST gerekli.", 405);
+        return usersError("POST gerekli.", 405);
     }
 
-    if (!verifyAdminRequest(request)) {
-        return error(
-            "Yetkisiz yönetici isteği.",
+    if (!usersValidAdminPost(request)) {
+        return usersError(
+            "Geçersiz yönetici istek kaynağı.",
             403
         );
     }
@@ -864,23 +1029,37 @@ async function resetDevice(request, env) {
     let body;
 
     try {
-        body = await readBody(request);
-    } catch (e) {
-        return error(e.message, 400);
+        body = await usersReadJson(request);
+    } catch (error) {
+        return usersError(error.message, 400);
     }
 
     const id = String(body.id ?? "");
 
-    if (!/^[0-9a-f-]{36}$/i.test(id)) {
-        return error(
+    if (!usersValidId(id)) {
+        return usersError(
             "Geçersiz kullanıcı kimliği.",
             422
         );
     }
 
+    const existing = await env.DB.prepare(`
+        SELECT id
+        FROM app_users
+        WHERE id = ?
+        LIMIT 1
+    `).bind(id).first();
+
+    if (!existing) {
+        return usersError(
+            "Kullanıcı bulunamadı.",
+            404
+        );
+    }
+
     const now = Math.floor(Date.now() / 1000);
 
-    const result = await env.DB.batch([
+    await env.DB.batch([
         env.DB.prepare(`
             UPDATE app_users
             SET
@@ -897,17 +1076,10 @@ async function resetDevice(request, env) {
         `).bind(now, id)
     ]);
 
-    if (!result[0]?.meta?.changes) {
-        return error(
-            "Kullanıcı bulunamadı.",
-            404
-        );
-    }
-
-    return json({
+    return usersJson({
         success: true,
         message:
-            "Cihaz sıfırlandı. Yeni girişte cihaz yeniden bağlanacak."
+            "Cihaz bağlantısı sıfırlandı. Yeni girişte cihaz tekrar bağlanacak."
     });
 }
 
@@ -917,8 +1089,8 @@ export async function handleAnkaUsers(
     getAdmin
 ) {
     if (!env.DB) {
-        return error(
-            "Cloudflare D1 veritabanı bulunamadı.",
+        return usersError(
+            "Cloudflare D1 DB bağlantısı bulunamadı.",
             503
         );
     }
@@ -928,25 +1100,12 @@ export async function handleAnkaUsers(
     const action = url.searchParams.get("action");
 
     try {
-        // Eski kullanıcı yönetimi adresini yeni adrese yönlendir.
-        if (path === "/admin/users") {
-            return new Response(null, {
-                status: 302,
-                headers: {
-                    Location: "/admin/manage",
-                    "Cache-Control": "no-store"
-                }
-            });
-        }
-
-        // Android kayıt işlemi.
         if (path === "/api/app/register") {
-            return await registerUser(request, env);
+            return await usersRegister(request, env);
         }
 
-        // Yönetici yetkilendirmesi.
         if (typeof getAdmin !== "function") {
-            return error(
+            return usersError(
                 "Yönetici doğrulama fonksiyonu bulunamadı.",
                 500
             );
@@ -955,29 +1114,31 @@ export async function handleAnkaUsers(
         const admin = await getAdmin(request, env);
 
         if (!admin) {
-            if (path === "/admin/manage") {
+            if (path === "/admin/users") {
                 return new Response(null, {
                     status: 303,
                     headers: {
-                        Location: "/admin",
+                        "Location": "/admin",
                         "Cache-Control": "no-store"
                     }
                 });
             }
 
-            return error(
+            return usersError(
                 "Yönetici oturumu gerekli.",
                 401
             );
         }
 
-        // Yönetici paneli.
-        if (path === "/admin/manage") {
+        if (path === "/admin/users") {
             if (request.method !== "GET") {
-                return error("GET gerekli.", 405);
+                return usersError(
+                    "GET gerekli.",
+                    405
+                );
             }
 
-            return new Response(htmlPage(), {
+            return new Response(usersPage(), {
                 status: 200,
                 headers: {
                     "Content-Type":
@@ -997,14 +1158,16 @@ export async function handleAnkaUsers(
             });
         }
 
-        // Yönetici API.
         if (path === "/admin/users/api") {
             if (action === "list") {
-                return await listUsers(request, env);
+                return await usersList(
+                    request,
+                    env
+                );
             }
 
             if (action === "status") {
-                return await updateStatus(
+                return await usersUpdateStatus(
                     request,
                     env,
                     admin
@@ -1012,32 +1175,41 @@ export async function handleAnkaUsers(
             }
 
             if (action === "reset-device") {
-                return await resetDevice(
+                return await usersResetDevice(
                     request,
                     env
                 );
             }
 
-            return error(
-                "Bilinmeyen işlem.",
+            return usersError(
+                "Bilinmeyen kullanıcı işlemi.",
                 404
             );
         }
 
-        return error(
-            "Sayfa bulunamadı.",
+        return usersError(
+            "Kullanıcı yönetimi adresi bulunamadı.",
             404
         );
 
-    } catch (e) {
+    } catch (error) {
+        const errorId = crypto.randomUUID();
+
         console.error(
             "ANKA_USERS_ERROR",
-            e?.name,
-            e?.message
+            JSON.stringify({
+                errorId: errorId,
+                path: path,
+                name: error?.name || "Error",
+                message: String(
+                    error?.message || error
+                )
+            })
         );
 
-        return error(
-            "Sunucu işlemi tamamlanamadı.",
+        return usersError(
+            "Kullanıcı yönetimi sunucu hatası. Hata kodu: " +
+            errorId,
             500
         );
     }
