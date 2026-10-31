@@ -7,7 +7,7 @@ import {
     handleAnkaPlatforms,
     handleAnkaPlatformAccess
 } from "./anka_platforms_module.js";
-
+import { handleAnkaSources } from "./anka_sources_module.js";
 
 const APP_NAME = "ANKA TV+";
 const VERSION = "1.2.2";
@@ -1019,6 +1019,14 @@ if (
         env,
         getAdmin
     );
+
+    if (
+    path === "/api/app/dizi-sources" ||
+    path === "/api/app/film-sources" ||
+    path === "/api/app/tv-series"
+) {
+    return await handleAnkaSources(request, env);
+    }
 }
             if (path === "/api/app/platforms") {
     return await handleAnkaPlatforms(request, env);
