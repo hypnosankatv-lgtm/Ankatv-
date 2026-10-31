@@ -2,6 +2,7 @@
 import { handleAnkaManage } from "./anka_admin_module.js";
 import { handleAnkaUsers } from "./anka_users_module.js";
 import { handleAnkaRegisterPage } from "./anka_register_page.js";
+import { handleAnkaAuth } from "./anka_auth_module.js";
 
 const APP_NAME = "ANKA TV+";
 const VERSION = "1.2.2";
@@ -981,6 +982,14 @@ export default {
             }
             if (path === "/kayit") {
     return handleAnkaRegisterPage(request);
+            }
+
+            if (
+    path === "/api/app/login" ||
+    path === "/api/app/me" ||
+    path === "/api/app/logout"
+) {
+    return await handleAnkaAuth(request, env);
             }
             
 if (
